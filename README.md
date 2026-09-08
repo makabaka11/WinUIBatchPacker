@@ -74,9 +74,6 @@ dotnet publish -c Release -p:Platform=x64 --self-contained false -o publish
 
 产物在 `publish/`，主程序 `WinUIBatchPacker.exe` 约几百 KB，总量约 37 MB，不打包 .NET 运行时，需本机已安装 .NET 10（Desktop）与 Windows App SDK 1.8 运行时。
 
-> 为什么不提供"只省略 .NET、内嵌 WinApp SDK 的单个 exe"？
-> WinUI 单文件模式官方仅支持自包含（`.NET SelfContained`）——若省略 .NET 仅内嵌 WinApp SDK 打包成单文件，运行时依赖的 WinApp SDK 原生库无法正确自解压，导致启动崩溃；且该模式无法启用压缩，实际体积反而达 137+ MB，只会更大。
-
 **方式二：自包含单文件版（可移植，无需安装任何运行时）**
 
 ```bash
