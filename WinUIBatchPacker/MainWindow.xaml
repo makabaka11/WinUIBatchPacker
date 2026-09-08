@@ -1,5 +1,5 @@
-<?xml version="1.0" encoding="utf-8"?>
 <Window x:Class="WinUIBatchPacker.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="视频字幕批量封装"/>
+        Title="视频字幕批量封装">
+</Window>

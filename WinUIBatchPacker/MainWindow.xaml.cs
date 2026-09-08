@@ -1,6 +1,9 @@
+using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Windows.Storage.Pickers;
+using Windows.UI;
 using WinRT.Interop;
 
 namespace WinUIBatchPacker;
@@ -21,15 +24,22 @@ public sealed partial class MainWindow : Window
     private readonly Grid OutputFolderPanel = new();
     private readonly ComboBox EncodingBox = new();
     private readonly ComboBox LanguageBox = new();
-    private readonly ProgressBar Progress = new() { Minimum = 0, Maximum = 1, Height = 4 };
-    private readonly TextBox LogBox = new() { Height = 190, AcceptsReturn = true, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas") };
-    private readonly TextBlock MatchInfo = new() { Text = "请选择输入路径", TextWrapping = TextWrapping.Wrap };
+    private readonly ProgressBar Progress = new() { Minimum = 0, Maximum = 1, Height = 6, CornerRadius = new CornerRadius(3) };
+    private readonly TextBlock ProgressText = new() { FontSize = 12, Opacity = 0.7, Text = "就绪", Margin = new Thickness(0, 4, 0, 0) };
+    private readonly ScrollViewer LogScroller = new() { Height = 180, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+    private readonly TextBlock LogText = new() { TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), FontSize = 12, IsTextSelectionEnabled = true, Padding = new Thickness(10) };
+    private readonly InfoBar MatchInfo = new() { IsOpen = true, Severity = InfoBarSeverity.Informational, Title = "请选择输入路径", IsClosable = false, CornerRadius = new CornerRadius(10) };
     private readonly MediaListView VideoList = new();
     private readonly MediaListView SubtitleList = new();
+    private readonly Border TitleBar = new();
 
     public MainWindow()
     {
         InitializeComponent();
+        ExtendsContentIntoTitleBar = true;
+        SystemBackdrop = new MicaBackdrop { Kind = MicaKind.BaseAlt };
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(1920, 1000));
+        BuildTitleBar();
         BuildInterface();
         VideoList.HeaderText = "视频文件";
         SubtitleList.HeaderText = "字幕组";
@@ -37,7 +47,28 @@ public sealed partial class MainWindow : Window
         SubtitleList.SelectionChangedByCheck += ListCheckChanged;
         VideoList.Reordered += ListReordered;
         SubtitleList.Reordered += ListReordered;
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(1720, 900));
+        VideoList.RefreshRequested += async (_, _) => await RefreshList(VideoList, true);
+        SubtitleList.RefreshRequested += async (_, _) => await RefreshList(SubtitleList, false);
+    }
+
+    private void BuildTitleBar()
+    {
+        var titleText = new TextBlock
+        {
+            Text = "视频字幕批量封装",
+            FontSize = 14,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(44, 0, 0, 0)
+        };
+        TitleBar.Height = 48;
+        TitleBar.VerticalAlignment = VerticalAlignment.Top;
+        TitleBar.Child = new Grid
+        {
+            Children = { titleText },
+            Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0))
+        };
+        SetTitleBar(TitleBar);
     }
 
     private void BuildInterface()
@@ -48,37 +79,218 @@ public sealed partial class MainWindow : Window
         EncodingBox.Items.Add("UTF-8"); EncodingBox.Items.Add("gbk"); EncodingBox.Items.Add("cp936"); EncodingBox.Items.Add("gb2312"); EncodingBox.Items.Add("big5"); EncodingBox.SelectedIndex = 0;
         LanguageBox.Items.Add("简体中文"); LanguageBox.Items.Add("繁体中文"); LanguageBox.Items.Add("英语"); LanguageBox.SelectedIndex = 0;
 
-        var root = new Grid { Padding = new Thickness(20), ColumnSpacing = 16, Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 244, 246, 249)) };
-        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(620) }); root.ColumnDefinitions.Add(new ColumnDefinition());
-        var left = new StackPanel { Spacing = 14, Margin = new Thickness(0, 0, 6, 0) };
-        left.Children.Add(new TextBlock { Text = "视频字幕批量封装", FontSize = 30, FontWeight = Windows.UI.Text.FontWeights.SemiBold });
+        var root = new Grid { ColumnSpacing = 16, Margin = new Thickness(0), Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)) };
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(700) });
+        root.ColumnDefinitions.Add(new ColumnDefinition());
 
-        var ff = new StackPanel { Spacing = 10 }; ff.Children.Add(Heading("FFmpeg")); ff.Children.Add(new TextBlock { Text = "已加入系统 PATH 时可以留空", Opacity = .62 });
-        FfmpegBox.PlaceholderText = "ffmpeg.exe 路径"; ff.Children.Add(PathRow(FfmpegBox, "选择文件", PickFfmpeg_Click)); left.Children.Add(Card(ff));
+        // Left panel
+        var left = new StackPanel { Spacing = 16, Margin = new Thickness(24, 56, 0, 24) };
+        left.Children.Add(new TextBlock { Text = "视频字幕批量封装", FontSize = 32, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) });
 
-        var folders = new StackPanel { Spacing = 12 }; folders.Children.Add(Heading("文件位置")); folders.Children.Add(SameFolderCheck);
-        ConfigureFolderGrid(SeparateFoldersPanel, true); AddFolderRow(SeparateFoldersPanel, VideoFolderBox, "视频文件夹", PickVideoFolder_Click, 0); AddFolderRow(SeparateFoldersPanel, SubtitleFolderBox, "字幕文件夹", PickSubtitleFolder_Click, 1); folders.Children.Add(SeparateFoldersPanel);
-        ConfigureFolderGrid(InputFolderPanel, false); AddFolderRow(InputFolderPanel, InputFolderBox, "输入文件夹", PickInputFolder_Click, 0); InputFolderPanel.Visibility = Visibility.Collapsed; folders.Children.Add(InputFolderPanel);
-        folders.Children.Add(ReplaceCheck); ConfigureFolderGrid(OutputFolderPanel, false); AddFolderRow(OutputFolderPanel, OutputFolderBox, "输出文件夹", PickOutputFolder_Click, 0); folders.Children.Add(OutputFolderPanel); left.Children.Add(Card(folders));
+        // FFmpeg card
+        var ff = new StackPanel { Spacing = 10 };
+        ff.Children.Add(Heading("FFmpeg"));
+        ff.Children.Add(new TextBlock { Text = "已加入系统 PATH 时可以留空", Opacity = .55, FontSize = 13 });
+        FfmpegBox.PlaceholderText = "ffmpeg.exe 路径";
+        FfmpegBox.CornerRadius = new CornerRadius(8);
+        ff.Children.Add(PathRow(FfmpegBox, "选择文件", PickFfmpeg_Click));
+        left.Children.Add(Card(ff));
 
-        var subs = new StackPanel { Spacing = 12 }; subs.Children.Add(Heading("字幕选项"));
-        var combos = new Grid { ColumnSpacing = 12 }; combos.ColumnDefinitions.Add(new ColumnDefinition()); combos.ColumnDefinitions.Add(new ColumnDefinition()); EncodingBox.Header = "文件编码"; LanguageBox.Header = "未知后缀语言"; Grid.SetColumn(LanguageBox, 1); combos.Children.Add(EncodingBox); combos.Children.Add(LanguageBox); subs.Children.Add(combos); subs.Children.Add(DefaultSubtitleCheck); left.Children.Add(Card(subs));
+        // Folder card
+        var folders = new StackPanel { Spacing = 12 };
+        folders.Children.Add(Heading("文件位置"));
+        folders.Children.Add(SameFolderCheck);
+        ConfigureFolderGrid(SeparateFoldersPanel, true);
+        AddFolderRow(SeparateFoldersPanel, VideoFolderBox, "视频文件夹", PickVideoFolder_Click, 0);
+        AddFolderRow(SeparateFoldersPanel, SubtitleFolderBox, "字幕文件夹", PickSubtitleFolder_Click, 1);
+        folders.Children.Add(SeparateFoldersPanel);
+        ConfigureFolderGrid(InputFolderPanel, false);
+        AddFolderRow(InputFolderPanel, InputFolderBox, "输入文件夹", PickInputFolder_Click, 0);
+        InputFolderPanel.Visibility = Visibility.Collapsed;
+        folders.Children.Add(InputFolderPanel);
+        folders.Children.Add(ReplaceCheck);
+        ConfigureFolderGrid(OutputFolderPanel, false);
+        AddFolderRow(OutputFolderPanel, OutputFolderBox, "输出文件夹", PickOutputFolder_Click, 0);
+        folders.Children.Add(OutputFolderPanel);
+        left.Children.Add(Card(folders));
 
-        var logs = new StackPanel { Spacing = 10 }; var logHead = new Grid(); logHead.ColumnDefinitions.Add(new ColumnDefinition()); logHead.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); logHead.Children.Add(Heading("执行日志")); var clear = Button("清空", ClearLog_Click); Grid.SetColumn(clear, 1); logHead.Children.Add(clear); logs.Children.Add(logHead); logs.Children.Add(Progress); logs.Children.Add(LogBox); var start = Button("开始批量封装", StartPack_Click); start.HorizontalAlignment = HorizontalAlignment.Stretch; logs.Children.Add(start); left.Children.Add(Card(logs));
-        var scroll = new ScrollViewer { Content = left, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }; root.Children.Add(scroll);
+        // Subtitle options card
+        var subs = new StackPanel { Spacing = 12 };
+        subs.Children.Add(Heading("字幕选项"));
+        var combos = new Grid { ColumnSpacing = 12 };
+        combos.ColumnDefinitions.Add(new ColumnDefinition());
+        combos.ColumnDefinitions.Add(new ColumnDefinition());
+        EncodingBox.Header = "文件编码";
+        EncodingBox.CornerRadius = new CornerRadius(8);
+        LanguageBox.Header = "未知后缀语言";
+        LanguageBox.CornerRadius = new CornerRadius(8);
+        Grid.SetColumn(LanguageBox, 1);
+        combos.Children.Add(EncodingBox);
+        combos.Children.Add(LanguageBox);
+        subs.Children.Add(combos);
+        subs.Children.Add(DefaultSubtitleCheck);
+        left.Children.Add(Card(subs));
 
-        var right = new Grid { RowSpacing = 12 }; right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); right.RowDefinitions.Add(new RowDefinition()); right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); Grid.SetColumn(right, 1);
-        right.Children.Add(new TextBlock { Text = "匹配方案", FontSize = 24, FontWeight = Windows.UI.Text.FontWeights.SemiBold });
-        var lists = new Grid { ColumnSpacing = 12 }; lists.ColumnDefinitions.Add(new ColumnDefinition()); lists.ColumnDefinitions.Add(new ColumnDefinition()); Grid.SetRow(lists, 1); Grid.SetColumn(SubtitleList, 1); lists.Children.Add(VideoList); lists.Children.Add(SubtitleList); right.Children.Add(lists);
-        var info = new Border { Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 232, 241, 251)), BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 184, 214, 242)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(12), Child = MatchInfo }; Grid.SetRow(info, 2); right.Children.Add(info); root.Children.Add(right); Content = root;
+        // Log card
+        var logs = new StackPanel { Spacing = 10 };
+        var logHead = new Grid();
+        logHead.ColumnDefinitions.Add(new ColumnDefinition());
+        logHead.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        logHead.Children.Add(Heading("执行日志"));
+        var clear = AccentButton("清空", ClearLog_Click);
+        clear.Margin = new Thickness(0, 0, 0, 0);
+        Grid.SetColumn(clear, 1);
+        logHead.Children.Add(clear);
+        logs.Children.Add(logHead);
+        var progressPanel = new StackPanel { Spacing = 0 };
+        progressPanel.Children.Add(Progress);
+        progressPanel.Children.Add(ProgressText);
+        logs.Children.Add(progressPanel);
+        LogScroller.Content = LogText;
+        logs.Children.Add(LogScroller);
+        var start = PrimaryButton("开始批量封装", StartPack_Click);
+        start.HorizontalAlignment = HorizontalAlignment.Stretch;
+        start.Height = 40;
+        start.FontSize = 15;
+        start.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        logs.Children.Add(start);
+        left.Children.Add(Card(logs));
+
+        var scroll = new ScrollViewer
+        {
+            Content = left,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollMode = ScrollMode.Enabled
+        };
+        scroll.PointerWheelChanged += (s, e) =>
+        {
+            var delta = e.GetCurrentPoint(null).Properties.MouseWheelDelta;
+            scroll.ChangeView(null, scroll.VerticalOffset - delta, null, true);
+            e.Handled = true;
+        };
+        root.Children.Add(scroll);
+
+        // Right panel
+        var right = new Grid { RowSpacing = 14, Margin = new Thickness(0, 56, 24, 24) };
+        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        right.RowDefinitions.Add(new RowDefinition());
+        right.RowDefinitions.Add(new RowDefinition());
+        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetColumn(right, 1);
+
+        right.Children.Add(new TextBlock { Text = "匹配方案", FontSize = 24, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 4) });
+
+        Grid.SetRow(VideoList, 1);
+        right.Children.Add(VideoList);
+        Grid.SetRow(SubtitleList, 2);
+        right.Children.Add(SubtitleList);
+
+        Grid.SetRow(MatchInfo, 3);
+        right.Children.Add(MatchInfo);
+        root.Children.Add(right);
+
+        // TitleBar on top
+        var overlay = new Grid();
+        overlay.Children.Add(root);
+        overlay.Children.Add(TitleBar);
+        Canvas.SetZIndex(TitleBar, 100);
+        Content = overlay;
     }
 
-    private static TextBlock Heading(string text) => new() { Text = text, FontSize = 18, FontWeight = Windows.UI.Text.FontWeights.SemiBold };
-    private static Border Card(UIElement child) => new() { Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Colors.White), BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 225, 229, 234)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Padding = new Thickness(18), Child = child };
-    private static Button Button(string text, RoutedEventHandler click) { var b = new Button { Content = text }; b.Click += click; return b; }
-    private static Grid PathRow(TextBox box, string label, RoutedEventHandler click) { var g = new Grid { ColumnSpacing = 8 }; g.ColumnDefinitions.Add(new ColumnDefinition()); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); var b = Button(label, click); Grid.SetColumn(b, 1); g.Children.Add(box); g.Children.Add(b); return g; }
-    private static void ConfigureFolderGrid(Grid grid, bool twoRows) { grid.ColumnSpacing = 8; grid.RowSpacing = 10; grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); if (twoRows) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); }
-    private static void AddFolderRow(Grid grid, TextBox box, string header, RoutedEventHandler click, int row) { box.Header = header; var b = Button("浏览", click); b.Margin = new Thickness(0, 25, 0, 0); Grid.SetRow(box, row); Grid.SetRow(b, row); Grid.SetColumn(b, 1); grid.Children.Add(box); grid.Children.Add(b); }
+    private static TextBlock Heading(string text) => new()
+    {
+        Text = text,
+        FontSize = 17,
+        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        Opacity = 0.9
+    };
+
+    private static Border Card(UIElement child)
+    {
+        var border = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(240, 250, 251, 253)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(50, 0, 0, 0)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(22),
+            Child = child
+        };
+        return border;
+    }
+
+    private static Button PrimaryButton(string text, RoutedEventHandler click)
+    {
+        var b = new Button
+        {
+            Content = text,
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"],
+            CornerRadius = new CornerRadius(10)
+        };
+        b.Click += click;
+        return b;
+    }
+
+    private static Button AccentButton(string text, RoutedEventHandler click)
+    {
+        var b = new Button
+        {
+            Content = text,
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"],
+            CornerRadius = new CornerRadius(8)
+        };
+        b.Click += click;
+        return b;
+    }
+
+    private static Button Button(string text, RoutedEventHandler click)
+    {
+        var b = new Button
+        {
+            Content = text,
+            CornerRadius = new CornerRadius(8)
+        };
+        b.Click += click;
+        return b;
+    }
+
+    private static Grid PathRow(TextBox box, string label, RoutedEventHandler click)
+    {
+        var g = new Grid { ColumnSpacing = 8 };
+        g.ColumnDefinitions.Add(new ColumnDefinition());
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var b = Button(label, click);
+        b.CornerRadius = new CornerRadius(8);
+        Grid.SetColumn(b, 1);
+        g.Children.Add(box);
+        g.Children.Add(b);
+        return g;
+    }
+
+    private static void ConfigureFolderGrid(Grid grid, bool twoRows)
+    {
+        grid.ColumnSpacing = 8;
+        grid.RowSpacing = 10;
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        if (twoRows) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+    }
+
+    private static void AddFolderRow(Grid grid, TextBox box, string header, RoutedEventHandler click, int row)
+    {
+        box.Header = header;
+        box.CornerRadius = new CornerRadius(8);
+        var b = Button("浏览", click);
+        b.CornerRadius = new CornerRadius(8);
+        b.Margin = new Thickness(0, 25, 0, 0);
+        Grid.SetRow(box, row);
+        Grid.SetRow(b, row);
+        Grid.SetColumn(b, 1);
+        grid.Children.Add(box);
+        grid.Children.Add(b);
+    }
 
     private IntPtr Hwnd => WindowNative.GetWindowHandle(this);
     private async Task<string?> PickFolder()
@@ -104,6 +316,22 @@ public sealed partial class MainWindow : Window
     }
     private void ReplaceModeChanged(object s, RoutedEventArgs e) => OutputFolderPanel.Visibility = ReplaceCheck.IsChecked == true ? Visibility.Collapsed : Visibility.Visible;
     private void FolderTextChanged(object s, TextChangedEventArgs e) => RefreshLists();
+    private async Task RefreshList(MediaListView list, bool isVideo)
+    {
+        list.SetRefreshing(true);
+        try
+        {
+            var same = SameFolderCheck.IsChecked == true;
+            var folder = same ? InputFolderBox.Text.Trim()
+                : isVideo ? VideoFolderBox.Text.Trim() : SubtitleFolderBox.Text.Trim();
+            var rows = isVideo ? MediaService.LoadVideos(folder) : MediaService.LoadSubtitleGroups(folder);
+            await Task.Delay(300); // 让转圈动画可见
+            list.SetItems(rows);
+            UpdateMatchInfo();
+        }
+        catch (Exception ex) { AppendLog($"刷新失败：{ex.Message}"); }
+        finally { list.SetRefreshing(false); }
+    }
     private void RefreshLists()
     {
         if (_refreshing || VideoList == null) return; _refreshing = true;
@@ -122,7 +350,8 @@ public sealed partial class MainWindow : Window
     private void UpdateMatchInfo()
     {
         var videos = VideoList.SelectedRows().Count; var subtitles = SubtitleList.SelectedRows().Count; var matched = videos > 0 && videos == subtitles;
-        MatchInfo.Text = matched ? $"✓ 当前将按序号处理 {videos} 对" : $"已选视频 {videos} 个，字幕组 {subtitles} 个；数量必须相等";
+        MatchInfo.Title = matched ? $"✓ 当前将按序号处理 {videos} 对" : $"已选视频 {videos} 个，字幕组 {subtitles} 个；数量必须相等";
+        MatchInfo.Severity = matched ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
     }
     private async void StartPack_Click(object sender, RoutedEventArgs e)
     {
@@ -134,7 +363,9 @@ public sealed partial class MainWindow : Window
         var encoding = EncodingBox.SelectedItem?.ToString() ?? "UTF-8";
         var language = LanguageBox.SelectedItem?.ToString() ?? "简体中文";
         var options = new PackOptions(FfmpegBox.Text.Trim(), encoding, language, DefaultSubtitleCheck.IsChecked == true, replace, output);
-        Progress.Maximum = videos.Count; Progress.Value = 0; AppendLog($"开始处理 {videos.Count} 对。");
+        Progress.Maximum = videos.Count; Progress.Value = 0;
+        ProgressText.Text = "正在处理...";
+        AppendLog($"开始处理 {videos.Count} 对。");
         for (var i = 0; i < videos.Count; i++)
         {
             var video = videos[i].Paths[0]; var subs = MediaService.Deduplicate(subtitles[i].Paths);
@@ -144,14 +375,21 @@ public sealed partial class MainWindow : Window
             try
             {
                 var result = await MediaService.Pack(video, subs, target, options);
-                if (result.Code != 0) { AppendLog($"#{i + 1} 失败：{result.Output[^Math.Min(2000, result.Output.Length)..]}"); if (replace && File.Exists(target)) File.Delete(target); }
-                else { if (replace) File.Move(target, video, true); AppendLog($"#{i + 1} 完成"); }
+                AppendLog($"  ↳ ffmpeg {result.Command}");
+                if (result.Code != 0) { AppendLog($"  ✗ 失败(退出码 {result.Code})：{result.Output[^Math.Min(2000, result.Output.Length)..]}"); if (replace && File.Exists(target)) File.Delete(target); }
+                else { if (replace) File.Move(target, video, true); AppendLog("  ✓ 已完成"); }
             }
             catch (Exception ex) { AppendLog($"#{i + 1} 异常：{ex.Message}"); if (replace && File.Exists(target)) File.Delete(target); }
             Progress.Value = i + 1;
+            ProgressText.Text = $"{i + 1} / {videos.Count}";
         }
+        ProgressText.Text = "全部完成";
         AppendLog("全部任务执行完毕。");
     }
-    private void AppendLog(string text) => LogBox.Text += $"[{DateTime.Now:HH:mm:ss}] {text}\r\n";
-    private void ClearLog_Click(object sender, RoutedEventArgs e) => LogBox.Text = "";
+    private void AppendLog(string text)
+    {
+        LogText.Text += $"[{DateTime.Now:HH:mm:ss}] {text}\r\n";
+        if (LogScroller.ScrollableHeight > 0) LogScroller.ChangeView(null, double.MaxValue, null);
+    }
+    private void ClearLog_Click(object sender, RoutedEventArgs e) => LogText.Text = "";
 }

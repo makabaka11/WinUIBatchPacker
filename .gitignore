@@ -2,13 +2,8 @@
 WinUIBatchPacker/bin/
 WinUIBatchPacker/obj/
 WinUIBatchPacker/release/
+WinUIBatchPacker/publish/
 artifacts/
-
-# Python cache and build output
-__pycache__/
-*.py[cod]
-build/
-dist/
 
 # IDE
 .vscode/
