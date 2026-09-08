@@ -87,10 +87,8 @@ public sealed partial class MainWindow : Window
             Content = new FontIcon { Glyph = "\uE946", FontSize = 16 }
         };
         ToolTipService.SetToolTip(btn, "开发者信息");
-        // 让按钮贴近系统最小化按钮左侧：右侧留出系统标题栏按钮宽度(约138px)+间距
-        double inset = AppWindow.TitleBar.RightInset;
-        double right = inset > 0 ? inset + 8 : 146;
-        btn.Margin = new Thickness(0, 0, right, 0);
+        // 固定在标题栏右侧，紧贴系统最小化按钮（系统三按钮宽约 138px）
+        btn.Margin = new Thickness(0, 0, 136, 0);
         btn.Click += ShowAboutDialog;
         return btn;
     }
