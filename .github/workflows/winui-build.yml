@@ -33,10 +33,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET 8 SDK
+      - name: Setup .NET 10 SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "10.0.x"
 
       - name: Show build environment
         run: dotnet --info
@@ -74,14 +74,52 @@ jobs:
         run: |
           $dest = "${{ github.workspace }}\artifacts"
           $staging = "${{ github.workspace }}\artifacts\WinUIBatchPacker-win-x64"
-          Compress-Archive -Path "$staging\*" -DestinationPath "$dest\WinUIBatchPacker-win-x64.zip" -Force
-          Get-Item "$dest\WinUIBatchPacker-win-x64.zip" |
+          Compress-Archive -Path "$staging\*" -DestinationPath "$dest\WinUIBatchPacker-framework-win-x64.zip" -Force
+          Get-Item "$dest\WinUIBatchPacker-framework-win-x64.zip" |
             Select-Object Name, @{N='MB'; E={[math]::Round($_.Length/1MB,1)}}
 
-      - name: Upload win-x64 zip artifact
+      - name: Upload framework zip artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WinUIBatchPacker-win-x64-${{ github.run_number }}
-          path: artifacts/WinUIBatchPacker-win-x64.zip
+          name: WinUIBatchPacker-framework-${{ github.run_number }}
+          path: artifacts/WinUIBatchPacker-framework-win-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      # 自包含单文件版：内置 .NET + Windows App SDK 运行时，无需安装；体积较大
+      - name: Publish standalone single-file exe
+        run: >-
+          dotnet publish WinUIBatchPacker.csproj
+          --configuration Release
+          --runtime win-x64
+          -p:Platform=x64
+          -p:SelfContained=true
+          -p:WindowsAppSDKSelfContained=true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -p:PublishTrimmed=false
+          -p:ContinuousIntegrationBuild=true
+          --output "${{ github.workspace }}\standalone"
+
+      - name: Verify & stage standalone exe
+        run: |
+          $src = "${{ github.workspace }}\standalone\WinUIBatchPacker.exe"
+          if (-not (Test-Path -LiteralPath $src)) {
+            throw "Standalone executable was not generated: $src"
+          }
+          $size = (Get-Item -LiteralPath $src).Length
+          if ($size -gt 120MB) {
+            throw "Standalone artifact is unexpectedly large: $size bytes"
+          }
+          $staged = "${{ github.workspace }}\artifacts\WinUIBatchPacker-standalone-win-x64.exe"
+          Copy-Item -LiteralPath $src $staged
+          Write-Host "Standalone single-file size: $([math]::Round($size/1MB,1)) MB"
+
+      - name: Upload standalone exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WinUIBatchPacker-standalone-${{ github.run_number }}
+          path: ${{ github.workspace }}\artifacts\WinUIBatchPacker-standalone-win-x64.exe
           if-no-files-found: error
           retention-days: 14

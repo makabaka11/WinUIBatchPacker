@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using Windows.Storage.Pickers;
 using Windows.UI;
@@ -65,10 +67,81 @@ public sealed partial class MainWindow : Window
         TitleBar.VerticalAlignment = VerticalAlignment.Top;
         TitleBar.Child = new Grid
         {
-            Children = { titleText },
+            Children = { titleText, BuildAboutButton() },
             Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0))
         };
         SetTitleBar(TitleBar);
+    }
+
+    private Button BuildAboutButton()
+    {
+        var btn = new Button
+        {
+            Width = 36,
+            Height = 36,
+            CornerRadius = new CornerRadius(18),
+            Padding = new Thickness(0),
+            Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            Content = new FontIcon { Glyph = "\uE946", FontSize = 16 }
+        };
+        ToolTipService.SetToolTip(btn, "开发者信息");
+        // 让按钮贴近系统最小化按钮左侧：右侧留出系统标题栏按钮宽度(约138px)+间距
+        double inset = AppWindow.TitleBar.RightInset;
+        double right = inset > 0 ? inset + 8 : 146;
+        btn.Margin = new Thickness(0, 0, right, 0);
+        btn.Click += ShowAboutDialog;
+        return btn;
+    }
+
+    private void ShowAboutDialog(object sender, RoutedEventArgs e)
+    {
+        var content = new StackPanel { Spacing = 10 };
+        content.Children.Add(new TextBlock
+        {
+            Text = "Retr0",
+            FontSize = 22,
+            FontWeight = Microsoft.UI.Text.FontWeights.Bold
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = "GitHub",
+            FontSize = 14,
+            Opacity = .85
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = "https://github.com/makabaka11",
+            FontSize = 14,
+            Foreground = Application.Current.Resources["AccentTextFillColorPrimaryBrush"] as Brush
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = "联系邮箱",
+            FontSize = 14,
+            Opacity = .85,
+            Margin = new Thickness(0, 6, 0, 0)
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = "ded000@retr0.xyz",
+            FontSize = 14,
+            IsTextSelectionEnabled = true
+        });
+
+        var dialog = new ContentDialog
+        {
+            Title = "开发者信息",
+            Content = content,
+            PrimaryButtonText = "打开主页",
+            CloseButtonText = "关闭",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = TitleBar.XamlRoot
+        };
+        dialog.PrimaryButtonClick += (_, _) =>
+            Process.Start(new ProcessStartInfo("https://github.com/makabaka11") { UseShellExecute = true });
+        _ = dialog.ShowAsync();
     }
 
     private void BuildInterface()
