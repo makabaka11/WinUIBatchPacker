@@ -50,7 +50,7 @@
 ## 📁 目录结构
 
 ```
-批量封装/
+video-subtitle-batch-packer/
 ├── WinUIBatchPacker/        # 主项目（WinUI 3 应用）
 │   ├── MainWindow.xaml(.cs) # 主界面与业务逻辑
 │   ├── MediaListView.xaml(.cs) # 媒体列表控件
