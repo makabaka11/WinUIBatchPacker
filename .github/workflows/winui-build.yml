@@ -109,7 +109,7 @@ jobs:
             throw "Standalone executable was not generated: $src"
           }
           $size = (Get-Item -LiteralPath $src).Length
-          if ($size -gt 120MB) {
+          if ($size -gt 220MB) {
             throw "Standalone artifact is unexpectedly large: $size bytes"
           }
           $staged = "${{ github.workspace }}\artifacts\WinUIBatchPacker-standalone-win-x64.exe"

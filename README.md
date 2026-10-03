@@ -2,6 +2,10 @@
 
 一个基于 Windows App SDK (WinUI 3) 开发的 **C# 视频 + 字幕批量封装工具**，使用 FFmpeg 实现视频与字幕的自动匹配与批量封装。
 
+版本更新见 [CHANGELOG.md](CHANGELOG.md)。
+
+版本更新见 [CHANGELOG.md](CHANGELOG.md)。
+
 > 本项目为原生 C# (.NET) 重写版，原 Python (tkinter + PyInstaller) 实现已移除。
 
 ## ✨ 功能特性
@@ -29,6 +33,7 @@
 - 视频与字幕**同文件夹**或**分文件夹**两种模式；
 
 - 可设置是否加为默认字幕轨道、封装成功后安全替换原视频；
+- 可选字体字集化：首次封装时从目录或 ZIP 选字体；也可直接处理已有 ASS/SSA 字幕和字体附件的 MKV，仅替换其字体子集；
 
 - 多样式 UI：Mica 背景、圆角卡片、明暗主题自适应。
 
@@ -41,6 +46,8 @@
    - 已加入系统 PATH 时程序内路径栏可留空；
 
    - 或手动选择 `ffmpeg.exe`；
+   - 使用字体字集化时还需要本机 Python 与 `fonttools`（`python -m pip install fonttools`）；
+   - 使用字体字集化时还需要本机 Python 与 `fonttools`（`python -m pip install fonttools`）；
 4. 格式支持：
 
    - 视频：`mkv`、`mp4`、`mov`、`avi`、`m4v`、`webm`；
@@ -72,7 +79,7 @@
 dotnet publish -c Release -p:Platform=x64 --self-contained false -o publish
 ```
 
-产物在 `publish/`，主程序 `WinUIBatchPacker.exe` 约几百 KB，总量约 37 MB，不打包 .NET 运行时，需本机已安装 .NET 10（Desktop）与 Windows App SDK 1.8 运行时。
+产物在 `publish/`，主程序 `WinUIBatchPacker.exe` 约几百 KB，总量约 40 MB，不打包 .NET 运行时，需本机已安装 .NET 10（Desktop）与 Windows App SDK 1.8 运行时。
 
 **方式二：自包含单文件版（可移植，无需安装任何运行时）**
 
@@ -83,7 +90,7 @@ dotnet publish -c Release -p:Platform=x64 -o publish \
   -p:EnableCompressionInSingleFile=true
 ```
 
-产物为单个 `publish/WinUIBatchPacker.exe`（约 85 MB，内置 .NET 与 Windows App SDK 运行时）。
+产物为单个 `publish/WinUIBatchPacker.exe`（当前约 191 MB，内置 .NET 与 Windows App SDK 运行时）。字体字集化仍需本机 Python 与 fontTools。
 
 ## 📖 使用方法
 

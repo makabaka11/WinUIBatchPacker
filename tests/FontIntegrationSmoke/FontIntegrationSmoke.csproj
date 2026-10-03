@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\WinUIBatchPacker\FontSubsetCore\FontSubsetCore.csproj" />
+    <Compile Include="..\..\WinUIBatchPacker\FontPackagingService.cs" Link="FontPackagingService.cs" />
+    <Compile Include="..\..\WinUIBatchPacker\FontValidationService.cs" Link="FontValidationService.cs" />
+    <Compile Include="..\..\WinUIBatchPacker\EmbeddedFontService.cs" Link="EmbeddedFontService.cs" />
+    <Compile Include="..\..\WinUIBatchPacker\MediaService.cs" Link="MediaService.cs" />
+    <Compile Include="..\..\WinUIBatchPacker\Models.cs" Link="Models.cs" />
+  </ItemGroup>
+</Project>

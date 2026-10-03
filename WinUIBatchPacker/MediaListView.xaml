@@ -91,9 +91,10 @@
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate>
-                        <Border Padding="12,9,12,9"
+                        <Border Padding="12,12,12,12"
                                 BorderThickness="0,0,0,1"
-                                BorderBrush="#33000000">
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                ToolTipService.ToolTip="按住行内非复选框区域拖动排序">
                             <Grid ColumnSpacing="8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="48"/>
@@ -114,11 +115,13 @@
                                           VerticalAlignment="Center"
                                           IsChecked="{Binding IsSelected, Mode=TwoWay}"
                                           Click="ItemCheckBox_Click"/>
-                                <TextBlock Grid.Column="2"
-                                           Text="{Binding DisplayName}"
-                                           TextWrapping="NoWrap"
-                                           VerticalAlignment="Center"
-                                           FontSize="13"/>
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                    <TextBlock Text="⋮⋮" Opacity="0.55" FontSize="16" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                                    <TextBlock Text="{Binding DisplayName}"
+                                               TextWrapping="NoWrap"
+                                               VerticalAlignment="Center"
+                                               FontSize="13"/>
+                                </StackPanel>
                                 <TextBlock Grid.Column="3"
                                            Text="{Binding EpisodeDisplay}"
                                            HorizontalAlignment="Right"

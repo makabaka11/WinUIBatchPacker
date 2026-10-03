@@ -1,9 +1,15 @@
 # .NET / WinUI generated files
 WinUIBatchPacker/bin/
 WinUIBatchPacker/obj/
+WinUIBatchPacker/FontSubsetCore/bin/
+WinUIBatchPacker/FontSubsetCore/obj/
+tests/**/bin/
+tests/**/obj/
 WinUIBatchPacker/release/
 WinUIBatchPacker/publish/
+WinUIBatchPacker/publish-standalone/
 artifacts/
+standalone/
 
 # IDE
 .vscode/
@@ -14,3 +20,6 @@ artifacts/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local release archive
+WinUIBatchPacker-win-x64.zip

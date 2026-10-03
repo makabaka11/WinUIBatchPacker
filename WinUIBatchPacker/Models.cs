@@ -37,3 +37,12 @@ public class MediaRow : INotifyPropertyChanged
 
 public sealed record PackOptions(string Ffmpeg, string Encoding, string FallbackLanguage,
     bool DefaultSubtitle, bool ReplaceOriginal, string OutputFolder);
+
+public sealed record FontToolsLocation(string Python, string BinDirectory);
+
+public enum IssueDecision { Continue, Skip, Stop }
+
+public sealed class BatchControlException(IssueDecision decision) : Exception
+{
+    public IssueDecision Decision { get; } = decision;
+}
