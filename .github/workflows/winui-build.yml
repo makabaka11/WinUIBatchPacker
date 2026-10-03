@@ -2,8 +2,6 @@ name: Build WinUI
 
 on:
   push:
-    tags:
-      - "v*"
     paths:
       - "WinUIBatchPacker/**"
       - ".github/workflows/winui-build.yml"
