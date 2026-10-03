@@ -222,7 +222,7 @@ public sealed partial class MainWindow : Window
         left.Children.Add(SubtitleOptionsCard);
 
         var fontsCard = new StackPanel { Spacing = 10 };
-        fontsCard.Children.Add(Heading("字体选项（内置字集化工具）"));
+        fontsCard.Children.Add(Heading("字体选项（内置子集化工具）"));
         ConfigureFontsCheck.Checked += (_, _) => UpdateFontModeUi();
         ConfigureFontsCheck.Unchecked += (_, _) => UpdateFontModeUi();
         fontsCard.Children.Add(ConfigureFontsCheck);
