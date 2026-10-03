@@ -31,7 +31,7 @@
 - 视频与字幕**同文件夹**或**分文件夹**两种模式；
 
 - 可设置是否加为默认字幕轨道、封装成功后安全替换原视频；
-- 可选字体字集化：从目录或 ZIP、7Z、RAR 等压缩包选择字体；首次封装可连同字幕加入 MKV，也可为已有 ASS/SSA 字幕的 MKV 补充或替换字体附件；
+- 可选字体子集化：从目录或 ZIP、7Z、RAR 等压缩包选择字体；首次封装可连同字幕加入 MKV，也可为已有 ASS/SSA 字幕的 MKV 补充或替换字体附件；
 
 - 多样式 UI：Mica 背景、圆角卡片、明暗主题自适应。
 
@@ -115,4 +115,10 @@ dotnet publish -c Release -p:Platform=x64 -o publish \
 - **列表不显示？** 点击列表标题栏的刷新按钮重新载入。
 
 - **打开时提示缺少 .NET 运行时？** 使用框架依赖版（framework-needed）时本机需安装 .NET 10 Desktop Runtime；缺失时系统会**弹窗提示安装**，安装后重启即可。也可改用自包含单文件版（click-to-run），无需安装任何运行时。
+
+## 🤝鸣谢
+
+字幕子集化工具来源于[AmusementClub/AssFontSubset](https://github.com/AmusementClub/AssFontSubset)，感谢**LoliHouse压制组**。
+
+内置解压套件来源于[7-Zip](https://7-zip.org/)。
 
