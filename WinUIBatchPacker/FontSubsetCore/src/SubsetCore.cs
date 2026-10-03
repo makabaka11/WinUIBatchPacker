@@ -35,7 +35,8 @@ public class SubsetCore(ILogger? logger = null)
         {
             var fontInfos = GetFontInfoFromFiles(fontDir);
             var assFonts = GetAssFontInfoFromFiles(path, optDir, out var assMulti);
-            var subsetFonts = GetSubsetFonts(fontInfos, assFonts, out var fontMap, subsetConfig.AllowMissingFonts);
+            var subsetFonts = GetSubsetFonts(fontInfos, assFonts, out var fontMap,
+                subsetConfig.AllowMissingFonts, subsetConfig.FontAliases);
             Dictionary<string, string> nameMap = [];
 
             switch (subsetConfig.Backend)
@@ -141,7 +142,7 @@ public class SubsetCore(ILogger? logger = null)
         return multiAssFonts;
     }
 
-    Dictionary<string, List<SubsetFont>> GetSubsetFonts(IEnumerable<IGrouping<string, FontInfo>> fontInfos, Dictionary<AssFontInfo, HashSet<Rune>> assFonts, out Dictionary<FontInfo, List<AssFontInfo>> fontMap, bool allowMissingFonts)
+    Dictionary<string, List<SubsetFont>> GetSubsetFonts(IEnumerable<IGrouping<string, FontInfo>> fontInfos, Dictionary<AssFontInfo, HashSet<Rune>> assFonts, out Dictionary<FontInfo, List<AssFontInfo>> fontMap, bool allowMissingFonts, IReadOnlyDictionary<string, string>? fontAliases)
     {
         logger?.ZLogInformation($"Start generate subset font info");
         _stopwatch.Start();
@@ -155,7 +156,11 @@ public class SubsetCore(ILogger? logger = null)
             foreach (var afi in assFonts.Keys)
             {
                 if (matchedAssFontInfos.Contains(afi)) { continue; }
-                var _fontInfo = AssFont.GetMatchedFontInfo(afi, fig, logger);
+                var lookup = afi;
+                var aliasName = afi.Name.StartsWith('@') ? afi.Name[1..] : afi.Name;
+                if (fontAliases?.TryGetValue(aliasName, out var originalName) == true)
+                    lookup = new AssFontInfo($"{(afi.Name.StartsWith('@') ? "@" : "")}{originalName},{afi.Weight},{(afi.Italic ? 1 : 0)},{afi.Encoding}");
+                var _fontInfo = AssFont.GetMatchedFontInfo(lookup, fig, logger);
                 if (_fontInfo == null) { continue; }
                 var fontInfo = (FontInfo)_fontInfo;
 

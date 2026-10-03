@@ -4,8 +4,6 @@
 
 版本更新见 [CHANGELOG.md](CHANGELOG.md)。
 
-版本更新见 [CHANGELOG.md](CHANGELOG.md)。
-
 > 本项目为原生 C# (.NET) 重写版，原 Python (tkinter + PyInstaller) 实现已移除。
 
 ## ✨ 功能特性
@@ -33,7 +31,7 @@
 - 视频与字幕**同文件夹**或**分文件夹**两种模式；
 
 - 可设置是否加为默认字幕轨道、封装成功后安全替换原视频；
-- 可选字体字集化：首次封装时从目录或 ZIP 选字体；也可直接处理已有 ASS/SSA 字幕和字体附件的 MKV，仅替换其字体子集；
+- 可选字体字集化：从目录或 ZIP、7Z、RAR 等压缩包选择字体；首次封装可连同字幕加入 MKV，也可为已有 ASS/SSA 字幕的 MKV 补充或替换字体附件；
 
 - 多样式 UI：Mica 背景、圆角卡片、明暗主题自适应。
 
@@ -46,7 +44,6 @@
    - 已加入系统 PATH 时程序内路径栏可留空；
 
    - 或手动选择 `ffmpeg.exe`；
-   - 使用字体字集化时还需要本机 Python 与 `fonttools`（`python -m pip install fonttools`）；
    - 使用字体字集化时还需要本机 Python 与 `fonttools`（`python -m pip install fonttools`）；
 4. 格式支持：
 
@@ -90,7 +87,7 @@ dotnet publish -c Release -p:Platform=x64 -o publish \
   -p:EnableCompressionInSingleFile=true
 ```
 
-产物为单个 `publish/WinUIBatchPacker.exe`（当前约 191 MB，内置 .NET 与 Windows App SDK 运行时）。字体字集化仍需本机 Python 与 fontTools。
+产物为单个 `publish/WinUIBatchPacker.exe`，内置 .NET 与 Windows App SDK 运行时。字体字集化仍需本机 Python 与 fontTools。
 
 ## 📖 使用方法
 

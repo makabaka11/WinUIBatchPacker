@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using AssFontSubset.Core;
 
 namespace WinUIBatchPacker;
 
@@ -13,8 +15,9 @@ internal static class EmbeddedFontService
         string MimeType, string Disposition);
 
     public static async Task<(int Code, string Output, string Command)> ProcessAsync(
-        string video, string target, string workDirectory, FontToolsLocation tools, string ffmpegOption,
-        Func<FontValidationResult, Task<IssueDecision>>? onFontIssue = null,
+        string video, string target, string workDirectory, string fontsDirectory,
+        FontToolsLocation tools, string ffmpegOption,
+        Func<string, FontValidationResult, Task<IssueDecision>>? onFontIssue = null,
         Func<FontValidationResult, Task<IssueDecision>>? onFontsComplete = null)
     {
         if (!Path.GetExtension(video).Equals(".mkv", StringComparison.OrdinalIgnoreCase))
@@ -28,10 +31,10 @@ internal static class EmbeddedFontService
         var styled = streams.Where(s => s.Type == "subtitle" && s.Codec is "ass" or "ssa").ToArray();
         if (styled.Length == 0) throw new InvalidDataException("MKV 中没有 ASS/SSA 字幕轨道，无法进行字体字集化。");
         var fontStreams = streams.Where(s => s.Type == "attachment" && IsFont(s)).ToArray();
-        if (fontStreams.Length == 0) throw new InvalidDataException("MKV 中没有可用的字体附件。");
 
         var extractedFonts = Path.Combine(workDirectory, "extracted-fonts");
         Directory.CreateDirectory(extractedFonts);
+        var originalNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var attachmentOrdinal = 0;
         foreach (var stream in streams.Where(s => s.Type == "attachment"))
         {
@@ -45,6 +48,7 @@ internal static class EmbeddedFontService
                      "-i", video, "-map", "0:v:0", "-frames:v", "0", "-f", "null", "-"]);
                 if (extracted.Code != 0 || !File.Exists(destination))
                     throw new InvalidDataException($"提取字体附件 #{stream.Index} 失败：{extracted.Output}");
+                originalNames[destination] = stream.Filename;
             }
             attachmentOrdinal++;
         }
@@ -62,25 +66,38 @@ internal static class EmbeddedFontService
                 throw new InvalidDataException($"提取字幕轨道 #{styled[i].Index} 失败：{extracted.Output}");
         }
 
-        var stagedFonts = await Task.Run(() => FontPackagingService.PrepareFonts(
-            extractedFonts, Path.Combine(workDirectory, "font-stage")));
-        var validation = await FontValidationService.CheckAsync(subtitles, stagedFonts, "UTF-8");
+        var fontAliases = fontStreams.Length > 0
+            ? await Task.Run(() => BuildFontAliases(fontsDirectory, extractedFonts, originalNames))
+            : null;
+        var sourceValidation = await FontValidationService.CheckAsync(subtitles, fontsDirectory, "UTF-8",
+            fontAliases: fontAliases);
         var continueWithIssues = false;
-        if (validation.HasIssues)
+        if (sourceValidation.HasIssues)
         {
-            if (onFontIssue is null) throw new InvalidDataException(validation.Summary);
-            var decision = await onFontIssue(validation);
+            if (onFontIssue is null) throw new InvalidDataException(sourceValidation.Summary);
+            var decision = await onFontIssue("所选字体来源", sourceValidation);
             if (decision != IssueDecision.Continue) throw new BatchControlException(decision);
             continueWithIssues = true;
         }
-        else if (onFontsComplete is not null)
+        if (fontStreams.Length > 0)
         {
-            var decision = await onFontsComplete(validation);
-            if (decision != IssueDecision.Continue) throw new BatchControlException(decision);
+            var existingValidation = await FontValidationService.CheckAsync(subtitles, extractedFonts, "UTF-8");
+            if (existingValidation.HasIssues)
+            {
+                if (onFontIssue is null) throw new InvalidDataException(existingValidation.Summary);
+                var decision = await onFontIssue("原 MKV 字体附件", existingValidation);
+                if (decision != IssueDecision.Continue) throw new BatchControlException(decision);
+            }
+            else if (onFontsComplete is not null)
+            {
+                var decision = await onFontsComplete(existingValidation);
+                if (decision != IssueDecision.Continue) throw new BatchControlException(decision);
+            }
         }
-        var subset = await FontPackagingService.SubsetEpisodeAsync(subtitles, stagedFonts,
-            Path.Combine(workDirectory, "episode"), tools, allowMissingFonts: continueWithIssues);
-        if (subset.Fonts.Length == 0 && !continueWithIssues)
+        var subset = await FontPackagingService.SubsetEpisodeAsync(subtitles, fontsDirectory,
+            Path.Combine(workDirectory, "episode"), tools, allowMissingFonts: continueWithIssues,
+            fontAliases: fontAliases);
+        if (subset.Fonts.Length == 0 && !(continueWithIssues && fontStreams.Length > 0))
             throw new InvalidDataException("未生成字集化字体，原视频未修改。");
 
         var args = new List<string> { "-i", video };
@@ -121,6 +138,32 @@ internal static class EmbeddedFontService
         FontExtensions.Contains(Path.GetExtension(stream.Filename)) ||
         stream.MimeType.Contains("font", StringComparison.OrdinalIgnoreCase) ||
         stream.Codec is "ttf" or "otf";
+
+    private static Dictionary<string, string> BuildFontAliases(string sourceDirectory,
+        string extractedDirectory, IReadOnlyDictionary<string, string> originalNames)
+    {
+        var aliases = new Dictionary<string, string>(StringComparer.Ordinal);
+        var sourceFaces = FontParse.GetFontInfos(new DirectoryInfo(sourceDirectory));
+        var embeddedFaces = FontParse.GetFontInfos(new DirectoryInfo(extractedDirectory));
+        foreach (var embedded in embeddedFaces)
+        {
+            if (!originalNames.TryGetValue(embedded.FileName, out var originalFileName)) continue;
+            var source = sourceFaces.FirstOrDefault(face =>
+                NormalizeFontFileName(face.FileName).Equals(NormalizeFontFileName(originalFileName), StringComparison.OrdinalIgnoreCase)
+                && face.Index == embedded.Index);
+            if (source.FamilyNames is null) continue;
+            var originalFamily = source.FamilyNames[FontConstant.LanguageIdEnUs];
+            foreach (var name in embedded.MatchNames ?? []) aliases.TryAdd(name, originalFamily);
+        }
+        return aliases;
+    }
+
+    private static string NormalizeFontFileName(string path)
+    {
+        var name = Path.GetFileNameWithoutExtension(path.Replace('\\', '/'));
+        name = Regex.Replace(name, @"^(?:\d{4}_)+", "");
+        return Regex.Replace(name, @"\.0\.[A-Z0-9]{8}$", "", RegexOptions.IgnoreCase);
+    }
 
     private static List<StreamInfo> ParseStreams(string json)
     {

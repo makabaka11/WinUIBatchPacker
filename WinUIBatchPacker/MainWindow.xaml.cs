@@ -24,10 +24,10 @@ public sealed partial class MainWindow : Window
     private readonly CheckBox DefaultSubtitleCheck = new() { Content = "将新增的第一条字幕设为默认轨道" };
     private readonly CheckBox ConfigureFontsCheck = new() { Content = "配置字体" };
     private readonly ComboBox FontModeBox = new() { Header = "字体处理模式" };
-    private readonly TextBox FontsSourceBox = new() { PlaceholderText = "选择字体目录或 ZIP 压缩包" };
+    private readonly TextBox FontsSourceBox = new() { PlaceholderText = "选择字体目录或 ZIP / 7Z / RAR 等压缩包" };
     private readonly StackPanel FontsSourcePanel = new() { Spacing = 8, Visibility = Visibility.Collapsed };
     private readonly StackPanel FontsPickerPanel = new() { Spacing = 8 };
-    private readonly TextBlock SupplementHelp = new() { Text = "仅补充字体模式从 MKV 内提取字幕和字体附件，无需外部字幕或字体目录。", TextWrapping = TextWrapping.Wrap, Opacity = .65 };
+    private readonly TextBlock SupplementHelp = new() { Text = "从 MKV 提取内嵌 ASS/SSA 字幕，用所选目录或压缩包中的字体生成附件；无需配置外部字幕。", TextWrapping = TextWrapping.Wrap, Opacity = .65 };
     private readonly RowDefinition SubtitleListRow = new() { Height = new GridLength(1, GridUnitType.Star) };
     private UIElement? SubtitleOptionsCard;
     private readonly Grid SeparateFoldersPanel = new();
@@ -235,7 +235,7 @@ public sealed partial class MainWindow : Window
         FontsPickerPanel.Children.Add(FontsSourceBox);
         var fontButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         fontButtons.Children.Add(Button("选择目录", PickFontsFolder_Click));
-        fontButtons.Children.Add(Button("选择 ZIP", PickFontsZip_Click));
+        fontButtons.Children.Add(Button("选择压缩包", PickFontsArchive_Click));
         FontsPickerPanel.Children.Add(fontButtons);
         FontsSourcePanel.Children.Add(FontsPickerPanel);
         FontsSourcePanel.Children.Add(SupplementHelp);
@@ -433,9 +433,11 @@ public sealed partial class MainWindow : Window
     private async void PickInputFolder_Click(object s, RoutedEventArgs e) { var p = await PickFolder(); if (p != null) InputFolderBox.Text = p; }
     private async void PickOutputFolder_Click(object s, RoutedEventArgs e) { var p = await PickFolder(); if (p != null) OutputFolderBox.Text = p; }
     private async void PickFontsFolder_Click(object s, RoutedEventArgs e) { var p = await PickFolder(); if (p != null) FontsSourceBox.Text = p; }
-    private async void PickFontsZip_Click(object s, RoutedEventArgs e)
+    private async void PickFontsArchive_Click(object s, RoutedEventArgs e)
     {
-        var picker = new FileOpenPicker(); picker.FileTypeFilter.Add(".zip"); InitializeWithWindow.Initialize(picker, Hwnd);
+        var picker = new FileOpenPicker();
+        foreach (var extension in FontPackagingService.ArchiveExtensions) picker.FileTypeFilter.Add(extension);
+        InitializeWithWindow.Initialize(picker, Hwnd);
         var file = await picker.PickSingleFileAsync(); if (file != null) FontsSourceBox.Text = file.Path;
     }
     private async void PickFfmpeg_Click(object s, RoutedEventArgs e)
@@ -457,7 +459,7 @@ public sealed partial class MainWindow : Window
         var enabled = ConfigureFontsCheck.IsChecked == true;
         var supplement = IsSupplementMode;
         FontsSourcePanel.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
-        FontsPickerPanel.Visibility = supplement ? Visibility.Collapsed : Visibility.Visible;
+        FontsPickerPanel.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
         SupplementHelp.Visibility = supplement ? Visibility.Visible : Visibility.Collapsed;
         SameFolderCheck.Visibility = supplement ? Visibility.Collapsed : Visibility.Visible;
         SubtitleList.Visibility = supplement ? Visibility.Collapsed : Visibility.Visible;
@@ -510,7 +512,7 @@ public sealed partial class MainWindow : Window
         var videos = VideoList.SelectedRows().Count; var subtitles = SubtitleList.SelectedRows().Count;
         var matched = videos > 0 && (IsSupplementMode || videos == subtitles);
         MatchInfo.Title = IsSupplementMode
-            ? videos > 0 ? $"✓ 将处理 {videos} 个 MKV 中的字幕与字体附件" : "请选择包含 ASS/SSA 字幕和字体附件的 MKV"
+            ? videos > 0 ? $"✓ 将为 {videos} 个 MKV 的内嵌字幕配置字体" : "请选择包含 ASS/SSA 字幕的 MKV"
             : matched ? $"✓ 当前将按序号处理 {videos} 对" : $"已选视频 {videos} 个，字幕组 {subtitles} 个；数量必须相等";
         MatchInfo.Severity = matched ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
         ScheduleFontValidation();
@@ -572,7 +574,7 @@ public sealed partial class MainWindow : Window
         if (!replace && output.Length == 0) { AppendLog("错误：请选择输出文件夹。", LogLevel.Error); return; }
         var configureFonts = ConfigureFontsCheck.IsChecked == true;
         var fontsSource = FontsSourceBox.Text.Trim();
-        if (configureFonts && !supplement && fontsSource.Length == 0) { AppendLog("错误：请选择字体目录或 ZIP 压缩包。", LogLevel.Error); return; }
+        if (configureFonts && fontsSource.Length == 0) { AppendLog("错误：请选择字体目录或压缩包。", LogLevel.Error); return; }
         FontValidationResult? fontPreflight = null;
         if (configureFonts && !supplement)
         {
@@ -617,7 +619,7 @@ public sealed partial class MainWindow : Window
         try
         {
             string? fontsDirectory = null;
-            if (configureFonts && !supplement)
+            if (configureFonts)
             {
                 fontsDirectory = await Task.Run(() => FontPackagingService.PrepareFonts(fontsSource, batchWork));
                 AppendLog("字体已准备就绪。");
@@ -648,9 +650,9 @@ public sealed partial class MainWindow : Window
                     (int Code, string Output, string Command) result;
                     if (supplement)
                     {
-                        result = await EmbeddedFontService.ProcessAsync(video, target, episodeWork, fontTools!, options.Ffmpeg,
-                            check => PromptIssueAsync("字体检查：" + check.Summary,
-                                "Y/A 将尝试处理可用字体并保留原字体附件；N/B 跳过；Q 停止"),
+                        result = await EmbeddedFontService.ProcessAsync(video, target, episodeWork, fontsDirectory!, fontTools!, options.Ffmpeg,
+                            (source, check) => PromptIssueAsync(source + "检查：" + check.Summary,
+                                "Y/A 用所选字体尝试处理；字体来源不全时保留旧附件；N/B 跳过；Q 停止"),
                             check => PromptIssueAsync("字体检查通过：" + check.Summary,
                                 "Y/A 重新字集化并替换旧字体附件；N/B 跳过；Q 停止"));
                     }

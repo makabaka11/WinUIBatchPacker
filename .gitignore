@@ -3,6 +3,8 @@ WinUIBatchPacker/bin/
 WinUIBatchPacker/obj/
 WinUIBatchPacker/FontSubsetCore/bin/
 WinUIBatchPacker/FontSubsetCore/obj/
+WinUIBatchPacker/ThirdParty/SevenZipExtractor/bin/
+WinUIBatchPacker/ThirdParty/SevenZipExtractor/obj/
 tests/**/bin/
 tests/**/obj/
 WinUIBatchPacker/release/

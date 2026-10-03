@@ -24,6 +24,16 @@ try
     }
     var stagedFonts = FontPackagingService.PrepareFonts(zip, Path.Combine(work, "stage"));
     if (Directory.GetFiles(stagedFonts).Length != 1) throw new Exception("Nested ZIP font detection failed");
+    var sevenZip = Path.GetFullPath("tests/FontIntegrationSmoke/Fixtures/font-sample.7z");
+    var staged7z = FontPackagingService.PrepareFonts(sevenZip, Path.Combine(work, "stage-7z"));
+    if (Directory.GetFiles(staged7z).Length != 1) throw new Exception("Bundled 7-Zip font extraction failed");
+    var tarSource = Path.Combine(work, "tar-fonts");
+    Directory.CreateDirectory(tarSource);
+    File.Copy(font, Path.Combine(tarSource, "arial.ttf"));
+    var tarArchive = Path.Combine(work, "fonts.tar");
+    await Capture("tar", ["-cf", tarArchive, "-C", tarSource, "arial.ttf"]);
+    var stagedTar = FontPackagingService.PrepareFonts(tarArchive, Path.Combine(work, "stage-tar"));
+    if (Directory.GetFiles(stagedTar).Length != 1) throw new Exception("TAR font extraction failed");
 
     var detection = await FontPackagingService.DetectFontToolsAsync();
     if (detection.Location is null) throw new Exception(detection.Warning);
@@ -108,10 +118,16 @@ try
     if (attachments.Split('\n', StringSplitOptions.RemoveEmptyEntries).Count(x => x.Contains("application/")) != 2)
         throw new Exception("Existing/new attachment metadata failed: " + attachments);
 
+    var originalSubtitleMkv = Path.Combine(work, "original-subtitle-font.mkv");
+    await Capture("ffmpeg", ["-v", "error", "-i", video, "-i", ass,
+        "-map", "0", "-map", "1:0", "-c", "copy",
+        "-metadata:s:s:0", "language=chi",
+        "-attach", font, "-metadata:s:t:0", "mimetype=application/x-truetype-font",
+        "-y", originalSubtitleMkv]);
     var supplemented = Path.Combine(work, "supplemented.mkv");
     var completeDecisionCount = 0;
-    var supplementalResult = await EmbeddedFontService.ProcessAsync(replacementMkv, supplemented,
-        Path.Combine(work, "supplement-work"), detection.Location, "ffmpeg", onFontsComplete: check =>
+    var supplementalResult = await EmbeddedFontService.ProcessAsync(originalSubtitleMkv, supplemented,
+        Path.Combine(work, "supplement-work"), stagedFonts, detection.Location, "ffmpeg", onFontsComplete: check =>
         {
             if (check.HasIssues) throw new Exception("Complete font callback received issues");
             completeDecisionCount++;
@@ -125,11 +141,26 @@ try
         supplementProbe.Split('\n').Count(x => x.Contains("subtitle")) != 1 ||
         !supplementProbe.Contains("chi"))
         throw new Exception("Supplement mode stream verification failed: " + supplementProbe);
+    var subtitleOnly = Path.Combine(work, "subtitle-only.mkv");
+    await Capture("ffmpeg", ["-v", "error", "-i", video, "-i", ass,
+        "-map", "0", "-map", "1:0", "-c", "copy", "-y", subtitleOnly]);
+    var newlyAttached = Path.Combine(work, "newly-attached.mkv");
+    var noAttachmentPrompted = false;
+    var newlyAttachedResult = await EmbeddedFontService.ProcessAsync(subtitleOnly, newlyAttached,
+        Path.Combine(work, "no-attachment-work"), stagedFonts, detection.Location, "ffmpeg",
+        (_, _) => { noAttachmentPrompted = true; return Task.FromResult(IssueDecision.Stop); },
+        _ => { noAttachmentPrompted = true; return Task.FromResult(IssueDecision.Stop); });
+    if (newlyAttachedResult.Code != 0 || noAttachmentPrompted)
+        throw new Exception("Subtitle-only MKV should gain fonts without an existing-font prompt: " + newlyAttachedResult.Output);
+    var newAttachmentProbe = await Capture("ffprobe", ["-v", "error", "-select_streams", "t",
+        "-show_entries", "stream=index", "-of", "csv=p=0", newlyAttached]);
+    if (newAttachmentProbe.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length != 1)
+        throw new Exception("Subtitle-only MKV did not gain a font attachment");
     var completeSkip = Path.Combine(work, "complete-skip.mkv");
     try
     {
-        await EmbeddedFontService.ProcessAsync(replacementMkv, completeSkip,
-            Path.Combine(work, "complete-skip-work"), detection.Location, "ffmpeg",
+        await EmbeddedFontService.ProcessAsync(originalSubtitleMkv, completeSkip,
+            Path.Combine(work, "complete-skip-work"), stagedFonts, detection.Location, "ffmpeg",
             onFontsComplete: _ => Task.FromResult(IssueDecision.Skip));
         throw new Exception("Complete-font skip decision was ignored");
     }
@@ -138,8 +169,8 @@ try
     var completeStop = Path.Combine(work, "complete-stop.mkv");
     try
     {
-        await EmbeddedFontService.ProcessAsync(replacementMkv, completeStop,
-            Path.Combine(work, "complete-stop-work"), detection.Location, "ffmpeg",
+        await EmbeddedFontService.ProcessAsync(originalSubtitleMkv, completeStop,
+            Path.Combine(work, "complete-stop-work"), stagedFonts, detection.Location, "ffmpeg",
             onFontsComplete: _ => Task.FromResult(IssueDecision.Stop));
         throw new Exception("Complete-font stop decision was ignored");
     }
@@ -159,7 +190,7 @@ try
         "-attach", note, "-metadata:s:t:2", "mimetype=text/plain", "-y", multiSource]);
     var multiOutput = Path.Combine(work, "multi-output.mkv");
     var multiResult = await EmbeddedFontService.ProcessAsync(multiSource, multiOutput,
-        Path.Combine(work, "multi-work"), detection.Location, "ffmpeg");
+        Path.Combine(work, "multi-work"), stagedFonts, detection.Location, "ffmpeg");
     if (multiResult.Code != 0) throw new Exception(multiResult.Output);
     var multiProbe = await Capture("ffprobe", ["-v", "error", "-show_entries",
         "stream=codec_type:stream_tags=language,mimetype", "-of", "csv=p=0", multiOutput]);
@@ -185,29 +216,29 @@ try
     try
     {
         await EmbeddedFontService.ProcessAsync(incompleteSource, Path.Combine(work, "skip.mkv"),
-            Path.Combine(work, "skip-work"), detection.Location, "ffmpeg",
-            _ => Task.FromResult(IssueDecision.Skip));
+            Path.Combine(work, "skip-work"), stagedFonts, detection.Location, "ffmpeg",
+            (_, _) => Task.FromResult(IssueDecision.Skip));
         throw new Exception("Skip decision was ignored");
     }
     catch (BatchControlException ex) when (ex.Decision == IssueDecision.Skip) { }
     try
     {
         await EmbeddedFontService.ProcessAsync(incompleteSource, Path.Combine(work, "stop.mkv"),
-            Path.Combine(work, "stop-work"), detection.Location, "ffmpeg",
-            _ => Task.FromResult(IssueDecision.Stop));
+            Path.Combine(work, "stop-work"), stagedFonts, detection.Location, "ffmpeg",
+            (_, _) => Task.FromResult(IssueDecision.Stop));
         throw new Exception("Stop decision was ignored");
     }
     catch (BatchControlException ex) when (ex.Decision == IssueDecision.Stop) { }
     var continued = Path.Combine(work, "continued.mkv");
     var continuedResult = await EmbeddedFontService.ProcessAsync(incompleteSource, continued,
-        Path.Combine(work, "continue-work"), detection.Location, "ffmpeg",
-        _ => Task.FromResult(IssueDecision.Continue));
+        Path.Combine(work, "continue-work"), stagedFonts, detection.Location, "ffmpeg",
+        (_, _) => Task.FromResult(IssueDecision.Continue));
     if (continuedResult.Code != 0) throw new Exception(continuedResult.Output);
     var continuedAttachments = await Capture("ffprobe", ["-v", "error", "-select_streams", "t",
         "-show_entries", "stream=index", "-of", "csv=p=0", continued]);
     if (continuedAttachments.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length != 1)
         throw new Exception("Continue decision did not preserve original attachment");
-    Console.WriteLine("PASS: ZIP, fontTools, ASS/SSA/GBK, MKV attachments, replacement, supplement mode");
+    Console.WriteLine("PASS: ZIP/7Z/TAR, fontTools, ASS/SSA/GBK, MKV attachments, replacement, supplement mode");
 }
 finally
 {
@@ -249,9 +280,10 @@ static async Task RunRealFixture(string video, string archive)
     if (Directory.GetFiles(archiveDir, "*", SearchOption.AllDirectories).Length != archiveFonts)
         throw new Exception("Archive font extraction count mismatch");
     var originalProbe = await Capture("ffprobe", ["-v", "error", "-show_streams", "-of", "json", video]);
+    string[] embeddedNames;
     using (var original = JsonDocument.Parse(originalProbe))
     {
-        var embeddedNames = original.RootElement.GetProperty("streams").EnumerateArray()
+        embeddedNames = original.RootElement.GetProperty("streams").EnumerateArray()
             .Where(s => s.GetProperty("codec_type").GetString() == "attachment")
             .Select(s => s.GetProperty("tags").GetProperty("filename").GetString() ?? "")
             .Select(name => System.Text.RegularExpressions.Regex.Replace(name,
@@ -263,16 +295,19 @@ static async Task RunRealFixture(string video, string archive)
             throw new Exception("Archive fonts and MKV attachment names differ");
     }
 
+        var stagedArchive = FontPackagingService.PrepareFonts(archive, Path.Combine(work, "font-stage"));
+        if (Directory.GetFiles(stagedArchive).Length != archiveFonts)
+            throw new Exception("Bundled 7-Zip extraction count differs from archive");
         var detection = await FontPackagingService.DetectFontToolsAsync();
         if (detection.Location is null) throw new Exception(detection.Warning);
         var output = Path.Combine(work, "processed.mkv");
         var hadIssues = false;
         var completePrompted = false;
         var processed = await EmbeddedFontService.ProcessAsync(video, output, Path.Combine(work, "task"),
-            detection.Location, "ffmpeg", check =>
+            stagedArchive, detection.Location, "ffmpeg", (source, check) =>
             {
                 hadIssues = true;
-                Console.WriteLine("REAL FIXTURE FONT WARNING: " + check.Summary);
+                Console.WriteLine("REAL FIXTURE FONT WARNING (" + source + "): " + check.Summary);
                 return Task.FromResult(IssueDecision.Continue);
             }, check =>
             {
@@ -287,6 +322,11 @@ static async Task RunRealFixture(string video, string archive)
         var subtitles = streams.Count(s => s.GetProperty("codec_type").GetString() == "subtitle");
         var attachments = streams.Count(s => s.GetProperty("codec_type").GetString() == "attachment");
         if (subtitles != 2 || attachments == 0) throw new Exception($"Unexpected real MKV output: {subtitles} subtitles, {attachments} attachments");
+        var outputNames = streams.Where(s => s.GetProperty("codec_type").GetString() == "attachment")
+            .Select(s => s.GetProperty("tags").GetProperty("filename").GetString() ?? "")
+            .Order(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (outputNames.SequenceEqual(embeddedNames, StringComparer.OrdinalIgnoreCase))
+            throw new Exception("Real fixture retained original font attachments instead of replacing them");
         if (!hadIssues && !completePrompted) throw new Exception("Real fixture font decision was not requested");
         Console.WriteLine($"PASS REAL: 7z fonts={archiveFonts}, subtitles={subtitles}, attachments={attachments}, warning={hadIssues}, completePrompted={completePrompted}, outputMB={new FileInfo(output).Length / 1048576}");
     }

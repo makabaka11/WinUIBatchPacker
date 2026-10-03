@@ -2,13 +2,19 @@ name: Build WinUI
 
 on:
   push:
+    tags:
+      - "v*"
     paths:
       - "WinUIBatchPacker/**"
       - ".github/workflows/winui-build.yml"
+      - "CHANGELOG.md"
+      - "scripts/Get-ReleaseNotes.ps1"
   pull_request:
     paths:
       - "WinUIBatchPacker/**"
       - ".github/workflows/winui-build.yml"
+      - "CHANGELOG.md"
+      - "scripts/Get-ReleaseNotes.ps1"
   workflow_dispatch:
 
 permissions:
@@ -23,6 +29,8 @@ jobs:
     name: Build compact win-x64
     runs-on: windows-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
 
     defaults:
       run:
@@ -123,3 +131,25 @@ jobs:
           path: ${{ github.workspace }}\artifacts\WinUIBatchPacker-standalone-win-x64.exe
           if-no-files-found: error
           retention-days: 14
+
+      - name: Extract release notes from changelog
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: >-
+          & "${{ github.workspace }}\scripts\Get-ReleaseNotes.ps1"
+          -Tag $env:GITHUB_REF_NAME
+          -OutputPath "${{ github.workspace }}\artifacts\release-notes.md"
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $releaseAssets = @(
+            "${{ github.workspace }}\artifacts\WinUIBatchPacker-framework-win-x64.zip"
+            "${{ github.workspace }}\artifacts\WinUIBatchPacker-standalone-win-x64.exe"
+          )
+          gh release create $env:GITHUB_REF_NAME @releaseAssets `
+            --verify-tag `
+            --title $env:GITHUB_REF_NAME `
+            --notes-file "${{ github.workspace }}\artifacts\release-notes.md"
+          if ($LASTEXITCODE -ne 0) { throw "GitHub release creation failed" }

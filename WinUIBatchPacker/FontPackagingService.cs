@@ -1,13 +1,14 @@
 using System.Diagnostics;
-using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using AssFontSubset.Core;
+using SevenZipExtractor;
 
 namespace WinUIBatchPacker;
 
 internal static class FontPackagingService
 {
+    public static readonly string[] ArchiveExtensions = [".zip", ".7z", ".rar", ".tar"];
     private static readonly HashSet<string> FontExtensions = new(StringComparer.OrdinalIgnoreCase)
         { ".ttf", ".otf", ".ttc", ".otc" };
     private static bool IsStyledSubtitle(string path) =>
@@ -79,20 +80,31 @@ internal static class FontPackagingService
 
     public static string PrepareFonts(string source, string workDirectory)
     {
-        var extracted = Path.Combine(workDirectory, "extracted");
         var input = source;
-        if (File.Exists(source) && Path.GetExtension(source).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+        if (File.Exists(source))
         {
-            Directory.CreateDirectory(extracted);
-            ZipFile.ExtractToDirectory(source, extracted);
-            input = extracted;
+            if (!ArchiveExtensions.Contains(Path.GetExtension(source), StringComparer.OrdinalIgnoreCase))
+                throw new InvalidDataException("不支持的字体压缩包格式：" + Path.GetExtension(source));
+            for (var depth = 0; depth < 3; depth++)
+            {
+                var extracted = Path.Combine(workDirectory, $"extracted-{depth}");
+                ExtractArchive(input, extracted, workDirectory);
+                input = extracted;
+                var entries = Directory.EnumerateFiles(input, "*", new EnumerationOptions
+                    { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint }).ToArray();
+                if (entries.Any(file => FontExtensions.Contains(Path.GetExtension(file)))) break;
+                if (entries.Length != 1 || !ArchiveExtensions.Contains(Path.GetExtension(entries[0]), StringComparer.OrdinalIgnoreCase)) break;
+                if (depth == 2) break;
+                input = entries[0];
+            }
         }
-        if (!Directory.Exists(input)) throw new DirectoryNotFoundException("字体目录或 ZIP 文件不存在：" + source);
+        if (!Directory.Exists(input)) throw new DirectoryNotFoundException("字体目录或压缩包不存在：" + source);
 
-        // 扫描所有层级，ZIP 中只有一层包装目录时也能找到真正的字体。
-        var files = Directory.EnumerateFiles(input, "*", SearchOption.AllDirectories)
+        // 扫描所有层级，同时跳过压缩包内可能包含的重解析点。
+        var files = Directory.EnumerateFiles(input, "*", new EnumerationOptions
+            { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint })
             .Where(file => FontExtensions.Contains(Path.GetExtension(file))).Order().ToArray();
-        if (files.Length == 0) throw new InvalidDataException("所选目录或 ZIP 中没有 TTF/OTF/TTC/OTC 字体。");
+        if (files.Length == 0) throw new InvalidDataException("所选目录或压缩包中没有 TTF/OTF/TTC/OTC 字体。");
 
         var flat = Path.Combine(workDirectory, "fonts");
         Directory.CreateDirectory(flat);
@@ -106,9 +118,48 @@ internal static class FontPackagingService
         return flat;
     }
 
+    private static void ExtractArchive(string archive, string destination, string workDirectory)
+    {
+        Directory.CreateDirectory(destination);
+        var toolDirectory = Path.Combine(workDirectory, "7zip-tools");
+        Directory.CreateDirectory(toolDirectory);
+        var dllPath = Path.Combine(toolDirectory, "7z.dll");
+        if (!File.Exists(dllPath))
+        {
+            using var resource = typeof(FontPackagingService).Assembly
+                .GetManifestResourceStream("WinUIBatchPacker.7z.dll")
+                ?? throw new FileNotFoundException("未找到内置 7z.dll。", dllPath);
+            using var output = File.Create(dllPath);
+            resource.CopyTo(output);
+        }
+        try
+        {
+            using var file = new ArchiveFile(Path.GetFullPath(archive), dllPath);
+            var entries = file.Entries.Where(entry => !entry.IsFolder).ToArray();
+            var selected = entries.Where(entry => FontExtensions.Contains(Path.GetExtension(entry.FileName))).ToArray();
+            if (selected.Length == 0 && entries.Length == 1 &&
+                ArchiveExtensions.Contains(Path.GetExtension(entries[0].FileName), StringComparer.OrdinalIgnoreCase))
+                selected = entries;
+            if (selected.Length == 0)
+                throw new InvalidDataException("压缩包中没有可用字体；条目：" +
+                    string.Join("、", entries.Take(5).Select(entry => entry.FileName)));
+
+            var paths = new Dictionary<Entry, string>();
+            for (var i = 0; i < selected.Length; i++)
+            {
+                var safeName = Path.GetFileName(selected[i].FileName.Replace('\\', '/'));
+                if (string.IsNullOrWhiteSpace(safeName)) throw new InvalidDataException("压缩包条目缺少文件名。");
+                paths[selected[i]] = Path.Combine(destination, $"{i:D4}_{safeName}");
+            }
+            file.Extract(entry => paths.GetValueOrDefault(entry)!);
+        }
+        catch (SevenZipException ex) { throw new InvalidDataException("7z.dll 解压失败：" + ex.Message, ex); }
+    }
+
     public static async Task<(string[] Subtitles, string[] Fonts)> SubsetEpisodeAsync(
         IReadOnlyList<string> subtitles, string fontsDirectory, string workDirectory, FontToolsLocation tools,
-        string encodingName = "UTF-8", bool allowMissingFonts = false)
+        string encodingName = "UTF-8", bool allowMissingFonts = false,
+        IReadOnlyDictionary<string, string>? fontAliases = null)
     {
         var styledFiles = PrepareStyledSubtitles(subtitles, workDirectory, encodingName);
         if (styledFiles.Length == 0) return (subtitles.ToArray(), []);
@@ -117,7 +168,7 @@ internal static class FontPackagingService
 
         var output = Path.Combine(workDirectory, "subset");
         var config = new SubsetConfig { Backend = SubsetBackend.PyFontTools, SourceHanEllipsis = true,
-            AllowMissingFonts = allowMissingFonts };
+            AllowMissingFonts = allowMissingFonts, FontAliases = fontAliases };
         await new SubsetCore().SubsetAsync(assFiles, new DirectoryInfo(fontsDirectory),
             new DirectoryInfo(output), new DirectoryInfo(tools.BinDirectory), config);
 

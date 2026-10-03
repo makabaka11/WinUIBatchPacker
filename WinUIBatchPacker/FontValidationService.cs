@@ -1,4 +1,6 @@
 using AssFontSubset.Core;
+using Mobsub.SubtitleParse.AssTypes;
+using Mobsub.SubtitleParse.AssText;
 
 namespace WinUIBatchPacker;
 
@@ -27,13 +29,14 @@ internal static class FontValidationService
     private static readonly SemaphoreSlim Gate = new(1, 1);
     public static async Task<FontValidationResult> CheckAsync(
         IReadOnlyList<string> subtitles, string fontSource, string encodingName,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<string, string>? fontAliases = null)
     {
         await Gate.WaitAsync(cancellationToken);
         var work = Path.Combine(Path.GetTempPath(), "WinUIBatchPacker", "font-check-" + Guid.NewGuid().ToString("N"));
         try
         {
-            return await Task.Run(() => Check(subtitles, fontSource, encodingName, work), cancellationToken);
+            return await Task.Run(() => Check(subtitles, fontSource, encodingName, work, fontAliases), cancellationToken);
         }
         finally
         {
@@ -43,7 +46,8 @@ internal static class FontValidationService
     }
 
     private static FontValidationResult Check(IReadOnlyList<string> subtitles,
-        string fontSource, string encodingName, string work)
+        string fontSource, string encodingName, string work,
+        IReadOnlyDictionary<string, string>? fontAliases)
     {
         var problems = new List<string>();
         var missing = new HashSet<string>(StringComparer.Ordinal);
@@ -77,8 +81,14 @@ internal static class FontValidationService
             {
                 var required = AssFont.GetAssFonts(file, out _);
                 foreach (var font in required.Keys)
-                    if (!groups.Any(group => AssFont.GetMatchedFontInfo(font, group) is not null))
+                {
+                    var lookup = font;
+                    var aliasName = font.Name.StartsWith('@') ? font.Name[1..] : font.Name;
+                    if (fontAliases?.TryGetValue(aliasName, out var originalName) == true)
+                        lookup = new AssFontInfo($"{(font.Name.StartsWith('@') ? "@" : "")}{originalName},{font.Weight},{(font.Italic ? 1 : 0)},{font.Encoding}");
+                    if (!groups.Any(group => AssFont.GetMatchedFontInfo(lookup, group) is not null))
                         missing.Add(font.ToString());
+                }
             }
             catch (Exception ex) { problems.Add(Path.GetFileName(file) + " 解析失败：" + ex.Message); }
         }

@@ -27,6 +27,9 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="FontSubsetCore\FontSubsetCore.csproj" />
+    <ProjectReference Include="ThirdParty\SevenZipExtractor\SevenZipExtractor.csproj" />
     <Compile Remove="FontSubsetCore\**\*.cs" />
+    <Compile Remove="ThirdParty\SevenZipExtractor\**\*.cs" />
+    <EmbeddedResource Include="ThirdParty\7Zip\7z.dll" LogicalName="WinUIBatchPacker.7z.dll" />
   </ItemGroup>
 </Project>
