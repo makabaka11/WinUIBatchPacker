@@ -4,12 +4,14 @@ on:
   push:
     paths:
       - "WinUIBatchPacker/**"
+      - "assets/**"
       - ".github/workflows/winui-build.yml"
       - "CHANGELOG.md"
       - "scripts/Get-ReleaseNotes.ps1"
   pull_request:
     paths:
       - "WinUIBatchPacker/**"
+      - "assets/**"
       - ".github/workflows/winui-build.yml"
       - "CHANGELOG.md"
       - "scripts/Get-ReleaseNotes.ps1"

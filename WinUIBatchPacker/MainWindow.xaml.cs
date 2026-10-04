@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -49,6 +50,15 @@ public sealed partial class MainWindow : Window
     private readonly MediaListView VideoList = new();
     private readonly MediaListView SubtitleList = new();
     private readonly Border TitleBar = new();
+    private bool _inspectingMedia;
+    private IntPtr _largeIcon;
+    private IntPtr _smallIcon;
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint ExtractIconEx(string file, int iconIndex, out IntPtr largeIcon, out IntPtr smallIcon, uint iconCount);
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyIcon(IntPtr icon);
 
     public MainWindow()
     {
@@ -56,9 +66,15 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SystemBackdrop = new MicaBackdrop { Kind = MicaKind.BaseAlt };
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1920, 1000));
+        ApplyWindowIcon();
         BuildTitleBar();
         BuildInterface();
-        Closed += (_, _) => _pendingIssue?.TrySetResult(IssueDecision.Stop);
+        Closed += (_, _) =>
+        {
+            _pendingIssue?.TrySetResult(IssueDecision.Stop);
+            if (_largeIcon != IntPtr.Zero) DestroyIcon(_largeIcon);
+            if (_smallIcon != IntPtr.Zero) DestroyIcon(_smallIcon);
+        };
         VideoList.HeaderText = "视频文件";
         SubtitleList.HeaderText = "字幕组";
         VideoList.SelectionChangedByCheck += ListCheckChanged;
@@ -67,6 +83,16 @@ public sealed partial class MainWindow : Window
         SubtitleList.Reordered += ListReordered;
         VideoList.RefreshRequested += async (_, _) => await RefreshList(VideoList, true);
         SubtitleList.RefreshRequested += async (_, _) => await RefreshList(SubtitleList, false);
+    }
+
+    private void ApplyWindowIcon()
+    {
+        var executable = Environment.ProcessPath;
+        if (executable is null || ExtractIconEx(executable, 0, out _largeIcon, out _smallIcon, 1) == 0)
+            return;
+        var icon = _largeIcon != IntPtr.Zero ? _largeIcon : _smallIcon;
+        if (icon != IntPtr.Zero)
+            AppWindow.SetIcon(Microsoft.UI.Win32Interop.GetIconIdFromIcon(icon));
     }
 
     private void BuildTitleBar()
@@ -83,10 +109,37 @@ public sealed partial class MainWindow : Window
         TitleBar.VerticalAlignment = VerticalAlignment.Top;
         TitleBar.Child = new Grid
         {
-            Children = { titleText, BuildSettingsButton(), BuildAboutButton() },
+            Children = { titleText, BuildToolsButton(), BuildSettingsButton(), BuildAboutButton() },
             Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0))
         };
         SetTitleBar(TitleBar);
+    }
+
+    private Button BuildToolsButton()
+    {
+        var btn = new Button
+        {
+            Width = 64,
+            Height = 36,
+            CornerRadius = new CornerRadius(18),
+            Padding = new Thickness(0),
+            Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 218, 0),
+            Content = "工具"
+        };
+        ToolTipService.SetToolTip(btn, "常用工具");
+        var menu = new MenuFlyout();
+        var mkv = new MenuFlyoutItem { Text = "MKV 封装内容分析" };
+        mkv.Click += InspectMkv_Click;
+        menu.Items.Add(mkv);
+        var video = new MenuFlyoutItem { Text = "视频信息" };
+        video.Click += InspectVideo_Click;
+        menu.Items.Add(video);
+        FlyoutBase.SetAttachedFlyout(btn, menu);
+        btn.Click += (_, _) => FlyoutBase.ShowAttachedFlyout(btn);
+        return btn;
     }
 
     private Button BuildSettingsButton()
@@ -509,6 +562,121 @@ public sealed partial class MainWindow : Window
         foreach (var extension in FontPackagingService.ArchiveExtensions) picker.FileTypeFilter.Add(extension);
         InitializeWithWindow.Initialize(picker, Hwnd);
         var file = await picker.PickSingleFileAsync(); if (file != null) FontsSourceBox.Text = file.Path;
+    }
+    private async void InspectMkv_Click(object sender, RoutedEventArgs e) => await InspectMediaAsync(true);
+    private async void InspectVideo_Click(object sender, RoutedEventArgs e) => await InspectMediaAsync(false);
+
+    private async Task InspectMediaAsync(bool mkvOnly)
+    {
+        if (_inspectingMedia) return;
+        _inspectingMedia = true;
+        try
+        {
+            // Let the title-bar menu close before opening the native file picker.
+            await Task.Yield();
+            var picker = new FileOpenPicker();
+            foreach (var extension in mkvOnly ? new[] { ".mkv" } : MediaService.VideoExtensions)
+                picker.FileTypeFilter.Add(extension);
+            InitializeWithWindow.Initialize(picker, Hwnd);
+            Windows.Storage.StorageFile? file;
+            try { file = await picker.PickSingleFileAsync(); }
+            catch (Exception ex)
+            {
+                var error = new ContentDialog
+                {
+                    Title = "无法选择文件",
+                    Content = new TextBlock { Text = ex.Message, TextWrapping = TextWrapping.Wrap },
+                    CloseButtonText = "关闭",
+                    XamlRoot = TitleBar.XamlRoot
+                };
+                await error.ShowAsync();
+                return;
+            }
+            if (file is null) return;
+
+            var title = mkvOnly ? "MKV 封装内容分析" : "视频信息";
+            var rootSize = TitleBar.XamlRoot.Size;
+            var dialogWidth = Math.Min(760, Math.Max(220, rootSize.Width - 48));
+            var loading = new StackPanel { Spacing = 12, Orientation = Orientation.Horizontal };
+            loading.Children.Add(new ProgressRing { IsActive = true, Width = 28, Height = 28 });
+            loading.Children.Add(new TextBlock { Text = "正在读取媒体信息…", VerticalAlignment = VerticalAlignment.Center });
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                Content = loading,
+                CloseButtonText = "取消",
+                Width = dialogWidth,
+                MaxWidth = dialogWidth,
+                XamlRoot = TitleBar.XamlRoot
+            };
+            using var cancellation = new CancellationTokenSource();
+            dialog.CloseButtonClick += (_, _) => cancellation.Cancel();
+            var shown = dialog.ShowAsync();
+            try
+            {
+                var report = mkvOnly
+                    ? await MediaInspectionService.InspectMkvAsync(file.Path, _settings.FfmpegPath, cancellation.Token)
+                    : await MediaInspectionService.InspectVideoAsync(file.Path, _settings.FfmpegPath, cancellation.Token);
+                if (!cancellation.IsCancellationRequested)
+                    dialog.Content = BuildInspectionReport(report, dialogWidth, rootSize.Height);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                if (!cancellation.IsCancellationRequested)
+                    dialog.Content = BuildInspectionReport("分析失败：" + ex.Message +
+                        "\n请确认 ffprobe.exe 与设置中的 ffmpeg.exe 位于同一目录，或已加入 PATH。",
+                        dialogWidth, rootSize.Height);
+            }
+            if (!cancellation.IsCancellationRequested) dialog.CloseButtonText = "关闭";
+            await shown;
+        }
+        finally { _inspectingMedia = false; }
+    }
+
+    private static ScrollViewer BuildInspectionReport(string report, double dialogWidth, double availableHeight)
+    {
+        var width = Math.Max(140, dialogWidth - 68);
+        var cardWidth = width - 12;
+        var sections = new StackPanel { Spacing = 12, Width = width };
+        var section = new StackPanel { Spacing = 6 };
+        void AddSection()
+        {
+            if (section.Children.Count == 0) return;
+            var card = Card(section);
+            card.Width = cardWidth;
+            sections.Children.Add(card);
+            section = new StackPanel { Spacing = 6 };
+        }
+        foreach (var raw in report.Replace("\r\n", "\n").Split('\n'))
+        {
+            if (string.IsNullOrWhiteSpace(raw)) { AddSection(); continue; }
+            var heading = raw.StartsWith("音频轨道（") || raw.StartsWith("字幕轨道（") ||
+                          raw.StartsWith("字体附件（") || raw.StartsWith("其他附件（") ||
+                          raw.StartsWith("视频轨道（");
+            if (heading) AddSection();
+            var indent = raw.StartsWith("    ") ? 14 : 0;
+            section.Children.Add(new TextBlock
+            {
+                Text = raw.TrimStart(),
+                TextWrapping = TextWrapping.Wrap,
+                IsTextSelectionEnabled = true,
+                Width = cardWidth - 48 - indent,
+                Margin = new Thickness(indent, 0, 0, 0),
+                FontSize = heading ? 16 : 14,
+                FontWeight = heading ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal
+            });
+        }
+        AddSection();
+        return new ScrollViewer
+        {
+            Content = sections,
+            Width = width,
+            Height = Math.Min(580, Math.Max(160, availableHeight - 180)),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalScrollMode = ScrollMode.Disabled
+        };
     }
     private void FolderModeChanged(object s, RoutedEventArgs e) => ApplyFolderMode();
     private void ApplyFolderMode()
