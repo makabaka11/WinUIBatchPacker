@@ -14,7 +14,7 @@ namespace WinUIBatchPacker;
 public sealed partial class MainWindow : Window
 {
     private bool _refreshing;
-    private readonly TextBox FfmpegBox = new();
+    private AppSettings _settings = AppSettings.Load();
     private readonly TextBox VideoFolderBox = new();
     private readonly TextBox SubtitleFolderBox = new();
     private readonly TextBox InputFolderBox = new();
@@ -83,10 +83,89 @@ public sealed partial class MainWindow : Window
         TitleBar.VerticalAlignment = VerticalAlignment.Top;
         TitleBar.Child = new Grid
         {
-            Children = { titleText, BuildAboutButton() },
+            Children = { titleText, BuildSettingsButton(), BuildAboutButton() },
             Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0))
         };
         SetTitleBar(TitleBar);
+    }
+
+    private Button BuildSettingsButton()
+    {
+        var btn = new Button
+        {
+            Width = 36,
+            Height = 36,
+            CornerRadius = new CornerRadius(18),
+            Padding = new Thickness(0),
+            Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 176, 0),
+            Content = new FontIcon { Glyph = "\uE713", FontSize = 16 }
+        };
+        ToolTipService.SetToolTip(btn, "设置");
+        btn.Click += ShowSettingsDialog;
+        return btn;
+    }
+
+    private async void ShowSettingsDialog(object sender, RoutedEventArgs e)
+    {
+        var logCommands = new CheckBox
+        {
+            Content = "在执行日志中输出 FFmpeg 命令",
+            IsChecked = _settings.LogCommands
+        };
+        var showSizeChanges = new CheckBox
+        {
+            Content = "在日志中展示文件大小变动",
+            IsChecked = _settings.ShowSizeChanges
+        };
+        var ffmpegBox = new TextBox
+        {
+            Header = "FFmpeg 位置",
+            PlaceholderText = "ffmpeg.exe 路径",
+            Text = _settings.FfmpegPath,
+            CornerRadius = new CornerRadius(8)
+        };
+        var content = new StackPanel { Spacing = 12, MinWidth = 420 };
+        content.Children.Add(logCommands);
+        content.Children.Add(showSizeChanges);
+        content.Children.Add(new TextBlock { Text = "已加入系统 PATH 时可以留空", Opacity = .55, FontSize = 13 });
+        content.Children.Add(PathRow(ffmpegBox, "选择文件", async (_, _) =>
+        {
+            var picker = new FileOpenPicker();
+            picker.FileTypeFilter.Add(".exe");
+            InitializeWithWindow.Initialize(picker, Hwnd);
+            var file = await picker.PickSingleFileAsync();
+            if (file != null) ffmpegBox.Text = file.Path;
+        }));
+
+        var dialog = new ContentDialog
+        {
+            Title = "设置",
+            Content = content,
+            PrimaryButtonText = "保存",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = TitleBar.XamlRoot
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        var updated = new AppSettings
+        {
+            LogCommands = logCommands.IsChecked == true,
+            ShowSizeChanges = showSizeChanges.IsChecked == true,
+            FfmpegPath = ffmpegBox.Text.Trim()
+        };
+        try
+        {
+            updated.Save();
+            _settings = updated;
+        }
+        catch (Exception ex)
+        {
+            AppendLog("设置保存失败：" + ex.Message, LogLevel.Error);
+        }
     }
 
     private Button BuildAboutButton()
@@ -175,15 +254,6 @@ public sealed partial class MainWindow : Window
         // Left panel
         var left = new StackPanel { Spacing = 16, Margin = new Thickness(24, 56, 0, 24) };
         left.Children.Add(new TextBlock { Text = "视频字幕批量封装", FontSize = 32, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) });
-
-        // FFmpeg card
-        var ff = new StackPanel { Spacing = 10 };
-        ff.Children.Add(Heading("FFmpeg"));
-        ff.Children.Add(new TextBlock { Text = "已加入系统 PATH 时可以留空", Opacity = .55, FontSize = 13 });
-        FfmpegBox.PlaceholderText = "ffmpeg.exe 路径";
-        FfmpegBox.CornerRadius = new CornerRadius(8);
-        ff.Children.Add(PathRow(FfmpegBox, "选择文件", PickFfmpeg_Click));
-        left.Children.Add(Card(ff));
 
         // Folder card
         var folders = new StackPanel { Spacing = 12 };
@@ -440,11 +510,6 @@ public sealed partial class MainWindow : Window
         InitializeWithWindow.Initialize(picker, Hwnd);
         var file = await picker.PickSingleFileAsync(); if (file != null) FontsSourceBox.Text = file.Path;
     }
-    private async void PickFfmpeg_Click(object s, RoutedEventArgs e)
-    {
-        var picker = new FileOpenPicker(); picker.FileTypeFilter.Add(".exe"); InitializeWithWindow.Initialize(picker, Hwnd);
-        var file = await picker.PickSingleFileAsync(); if (file != null) FfmpegBox.Text = file.Path;
-    }
     private void FolderModeChanged(object s, RoutedEventArgs e) => ApplyFolderMode();
     private void ApplyFolderMode()
     {
@@ -608,7 +673,11 @@ public sealed partial class MainWindow : Window
         if (!replace) Directory.CreateDirectory(output);
         var encoding = EncodingBox.SelectedItem?.ToString() ?? "UTF-8";
         var language = LanguageBox.SelectedItem?.ToString() ?? "简体中文";
-        var options = new PackOptions(FfmpegBox.Text.Trim(), encoding, language, DefaultSubtitleCheck.IsChecked == true, replace, output);
+        var options = new PackOptions(_settings.FfmpegPath, encoding, language, DefaultSubtitleCheck.IsChecked == true, replace, output);
+        var logCommands = _settings.LogCommands;
+        var showSizeChanges = _settings.ShowSizeChanges;
+        long totalSizeChange = 0;
+        var completedFiles = 0;
         _stickyIssueDecision = null;
         Progress.Maximum = videos.Count; Progress.Value = 0;
         ProgressText.Text = "正在处理...";
@@ -680,12 +749,16 @@ public sealed partial class MainWindow : Window
                         }
                         result = await MediaService.Pack(video, muxSubtitles, target, options, fonts, subs);
                     }
-                    AppendLog($"执行命令：ffmpeg {result.Command}", LogLevel.Command);
+                    if (logCommands) AppendLog($"执行命令：{(string.IsNullOrWhiteSpace(options.Ffmpeg) ? "ffmpeg" : options.Ffmpeg)} {result.Command}", LogLevel.Command);
                     if (result.Code != 0) throw new InvalidOperationException($"FFmpeg 退出码 {result.Code}：{result.Output[^Math.Min(2000, result.Output.Length)..]}");
                     if (!File.Exists(target) || new FileInfo(target).Length == 0) throw new InvalidDataException("FFmpeg 未生成有效的目标文件。");
+                    var sizeChange = new FileInfo(target).Length - new FileInfo(video).Length;
                     var commitWarning = MediaService.CommitOutput(video, final, target, replace);
                     if (commitWarning is not null) AppendLog(commitWarning, LogLevel.Warn);
-                    AppendLog("  ✓ 已完成：" + final, LogLevel.Success);
+                    completedFiles++;
+                    totalSizeChange += sizeChange;
+                    if (showSizeChanges) AppendSizeChangeLog("  ✓ 已完成：" + final, sizeChange, LogLevel.Success);
+                    else AppendLog("  ✓ 已完成：" + final, LogLevel.Success);
                 }
                 catch (BatchControlException ex)
                 {
@@ -735,6 +808,7 @@ public sealed partial class MainWindow : Window
             try { await FontPackagingService.CleanupDirectoryAsync(batchWork); }
             catch (Exception ex) { AppendLog("临时字体清理失败：" + ex.Message, LogLevel.Warn); }
             ProgressText.Text = wasStopped ? "已停止" : batchFailed ? "执行失败" : "全部完成";
+            if (showSizeChanges) AppendSizeChangeLog($"合计大小变动（已完成 {completedFiles} 个文件）：", totalSizeChange);
             AppendLog(wasStopped ? "批次已停止。" : batchFailed ? "批次执行失败。" : "全部任务执行完毕。");
         }
     }
@@ -744,6 +818,32 @@ public sealed partial class MainWindow : Window
         var p = new Paragraph { Inlines = { run } };
         LogText.Blocks.Add(p);
         ScrollLogToEnd();
+    }
+    private void AppendSizeChangeLog(string text, long bytes, LogLevel level = LogLevel.Info)
+    {
+        var prefix = new Run { Text = $"[{DateTime.Now:HH:mm:ss}] [{LogTag(level)}] {text}  ", Foreground = LogBrush(level) };
+        var change = bytes switch
+        {
+            > 0 => $"↑ {FormatFileSize(bytes)}",
+            < 0 => $"↓ {FormatFileSize(-bytes)}",
+            _ => "↔ 0 B"
+        };
+        var color = bytes switch
+        {
+            > 0 => Color.FromArgb(255, 233, 17, 35),
+            < 0 => Color.FromArgb(255, 14, 122, 13),
+            _ => Color.FromArgb(255, 110, 110, 110)
+        };
+        LogText.Blocks.Add(new Paragraph { Inlines = { prefix, new Run { Text = change, Foreground = new SolidColorBrush(color) } } });
+        ScrollLogToEnd();
+    }
+    private static string FormatFileSize(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB", "TB", "PB"];
+        var size = (double)bytes;
+        var unit = 0;
+        while (size >= 1024 && unit < units.Length - 1) { size /= 1024; unit++; }
+        return unit == 0 ? $"{bytes} B" : $"{size:0.##} {units[unit]}";
     }
     private void ScrollLogToEnd()
     {

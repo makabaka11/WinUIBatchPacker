@@ -1,6 +1,6 @@
 # WinUIBatchPacker
 
-一个基于 Windows App SDK (WinUI 3) 开发的 **C# 视频 + 字幕批量封装工具**，使用 FFmpeg 实现视频与字幕的自动匹配与批量封装。
+一个基于 Windows App SDK (WinUI 3) 开发的 **C# 视频 + 字幕+字体（子集化）批量封装工具**，使用 FFmpeg 实现视频与字幕的自动匹配与批量封装。
 
 版本更新见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -26,7 +26,8 @@
 
 - 刷新按钮，一键重新载入文件列表；
 
-- 后台静默调用 FFmpeg，日志区自动滚动并显示实际执行的命令；
+- 后台静默调用 FFmpeg，日志区自动滚动；可在设置中开启执行命令输出（默认关闭）；
+- 日志默认在每个成功文件名后显示与原视频相比的大小变化，并在批次结束时汇总；可在设置中关闭；
 
 - 视频与字幕**同文件夹**或**分文件夹**两种模式；
 
@@ -44,7 +45,7 @@
    - 已加入系统 PATH 时程序内路径栏可留空；
 
    - 或手动选择 `ffmpeg.exe`；
-   - 使用字体字集化时还需要本机 Python 与 `fonttools`（`python -m pip install fonttools`）；
+   - 使用字体子集化时还需要本机 Python 与 `fonttools`（`python -m pip install fonttools`）；
 4. 格式支持：
 
    - 视频：`mkv`、`mp4`、`mov`、`avi`、`m4v`、`webm`；
@@ -87,22 +88,22 @@ dotnet publish -c Release -p:Platform=x64 -o publish \
   -p:EnableCompressionInSingleFile=true
 ```
 
-产物为单个 `publish/WinUIBatchPacker.exe`，内置 .NET 与 Windows App SDK 运行时。字体字集化仍需本机 Python 与 fontTools。
+产物为单个 `publish/WinUIBatchPacker.exe`，内置 .NET 与 Windows App SDK 运行时。字体子集化仍需本机 Python 与 fontTools。
 
 ## 📖 使用方法
 
-1. 启动程序，配置 **FFmpeg 路径**（已加入 PATH 可留空）；
+1. 启动程序，按需点击标题栏的**设置**配置 FFmpeg 路径（已加入 PATH 可留空）；设置会自动保存；
 2. 选择**视频文件夹**与**字幕文件夹**（或勾选「视频和字幕位于同一个文件夹」）；
 3. 可选：设置输出文件夹、字幕语言、编码、默认轨道、替换原视频；
 4. 程序自动提取集号并分组，确认视频/字幕**序号一一对应**（列表左侧集号可快速核对）；
-5. 点击**开始批量封装**，日志区实时显示每个文件的执行命令与结果；
+5. 点击**开始批量封装**，日志区实时显示每个文件的处理结果；开启设置中的命令输出后也会显示 FFmpeg 命令；
 6. 完成后在输出文件夹（或原位）查看封装产物。
 
 ## ⚠️ 注意事项
 
 - 视频与字幕按**列表序号**一一配对，封装前请核对数量是否相等；
 
-- 若封装失败，查看日志中的 FFmpeg 命令与退出码（常见：FFmpeg 未配置、编码不匹配、格式不支持）；
+- 若封装失败，可在设置中开启命令输出，查看日志中的 FFmpeg 命令与退出码（常见：FFmpeg 未配置、编码不匹配、格式不支持）；
 
 - `06v2` 与 `06` 因名称不同会被视为不同条目，请酌情勾选。
 
