@@ -119,15 +119,25 @@ public sealed partial class MainWindow : Window
     {
         var btn = new Button
         {
-            Width = 64,
+            Width = 106,
             Height = 36,
             CornerRadius = new CornerRadius(18),
-            Padding = new Thickness(0),
+            Padding = new Thickness(8, 0, 8, 0),
             Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 218, 0),
-            Content = "工具"
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                VerticalAlignment = VerticalAlignment.Center,
+                Children =
+                {
+                    new FontIcon { Glyph = "\uE90F", FontSize = 16 },
+                    new TextBlock { Text = "常用工具", FontSize = 13, VerticalAlignment = VerticalAlignment.Center }
+                }
+            }
         };
         ToolTipService.SetToolTip(btn, "常用工具");
         var menu = new MenuFlyout();
@@ -596,7 +606,9 @@ public sealed partial class MainWindow : Window
 
             var title = mkvOnly ? "MKV 封装内容分析" : "视频信息";
             var rootSize = TitleBar.XamlRoot.Size;
-            var dialogWidth = Math.Min(760, Math.Max(220, rootSize.Width - 48));
+            // ContentDialog's built-in width cap is narrower than the window. Keep
+            // the report inside that cap so TextBlock.Wrap sees the visible width.
+            var dialogWidth = Math.Min(520, Math.Max(220, rootSize.Width - 48));
             var loading = new StackPanel { Spacing = 12, Orientation = Orientation.Horizontal };
             loading.Children.Add(new ProgressRing { IsActive = true, Width = 28, Height = 28 });
             loading.Children.Add(new TextBlock { Text = "正在读取媒体信息…", VerticalAlignment = VerticalAlignment.Center });
@@ -909,7 +921,11 @@ public sealed partial class MainWindow : Window
                             }
                             catch (Exception ex)
                             {
-                                AppendLog("字集化失败，改用原字幕与完整字体继续：" + ex.Message, LogLevel.Warn);
+                                var decision = await PromptIssueAsync(
+                                    $"{Path.GetFileName(video)} 字集化失败：{ex.Message}",
+                                    "Y 用原字幕和完整字体继续当前项；A 后续同类失败也这样处理；N 跳过当前项；B 后续同类失败全部跳过；Q 停止批次");
+                                if (decision != IssueDecision.Continue) throw new BatchControlException(decision);
+                                AppendLog("按用户选择，改用原字幕与完整字体继续当前项。", LogLevel.Warn);
                                 fonts = Directory.EnumerateFiles(fontsDirectory!)
                                     .Where(p => Path.GetExtension(p).ToLowerInvariant() is ".ttf" or ".otf" or ".ttc" or ".otc")
                                     .ToArray();

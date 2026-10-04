@@ -2,6 +2,7 @@ name: Build WinUI
 
 on:
   push:
+    # GitHub ignores paths for tag pushes, so v* tags still run this workflow.
     paths:
       - "WinUIBatchPacker/**"
       - "assets/**"
@@ -132,24 +133,31 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Extract release notes from changelog
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: >-
-          & "${{ github.workspace }}\scripts\Get-ReleaseNotes.ps1"
-          -Tag $env:GITHUB_REF_NAME
-          -OutputPath "${{ github.workspace }}\artifacts\release-notes.md"
+      - name: Extract latest release notes from changelog
+        run: |
+          $arguments = @{ OutputPath = "${{ github.workspace }}\artifacts\release-notes.md" }
+          if ($env:GITHUB_REF -like 'refs/tags/v*') { $arguments.Tag = $env:GITHUB_REF_NAME }
+          & "${{ github.workspace }}\scripts\Get-ReleaseNotes.ps1" @arguments
 
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $notes = "${{ github.workspace }}\artifacts\release-notes.md"
           $releaseAssets = @(
             "${{ github.workspace }}\artifacts\WinUIBatchPacker-framework-win-x64.zip"
             "${{ github.workspace }}\artifacts\WinUIBatchPacker-standalone-win-x64.exe"
           )
-          gh release create $env:GITHUB_REF_NAME @releaseAssets `
-            --verify-tag `
-            --title $env:GITHUB_REF_NAME `
-            --notes-file "${{ github.workspace }}\artifacts\release-notes.md"
-          if ($LASTEXITCODE -ne 0) { throw "GitHub release creation failed" }
+          $PSNativeCommandUseErrorActionPreference = $false
+          gh release view $env:GITHUB_REF_NAME --json tagName 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            gh release edit $env:GITHUB_REF_NAME --title $env:GITHUB_REF_NAME --notes-file $notes
+            if ($LASTEXITCODE -ne 0) { throw "GitHub release update failed" }
+            gh release upload $env:GITHUB_REF_NAME @releaseAssets --clobber
+            if ($LASTEXITCODE -ne 0) { throw "GitHub release asset upload failed" }
+          } else {
+            gh release create $env:GITHUB_REF_NAME @releaseAssets `
+              --verify-tag --title $env:GITHUB_REF_NAME --notes-file $notes
+            if ($LASTEXITCODE -ne 0) { throw "GitHub release creation failed" }
+          }

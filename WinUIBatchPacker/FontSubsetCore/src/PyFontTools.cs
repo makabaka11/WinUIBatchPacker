@@ -86,7 +86,19 @@ public class PyFontTools(string pyftsubset, string ttx, ILogger? logger) : Subse
         ssf.WriteRunesToUtf8File();
 
         var subsetCmd = GetSubsetCmd(ssf);
-        ExecuteCmd(subsetCmd);
+        try { ExecuteCmd(subsetCmd); }
+        catch (FontToolCommandException ex) when (
+            ex.ErrorOutput.Contains("_g_a_s_p.py", StringComparison.OrdinalIgnoreCase) &&
+            ex.ErrorOutput.Contains("AssertionError: too much data", StringComparison.Ordinal))
+        {
+            // Some fonts contain extra bytes in gasp. Keep the source font intact
+            // and retry only this subset without that malformed hinting table.
+            logger?.ZLogWarning($"Malformed gasp table in {ssf.OriginalFontFile.Name}; retry without gasp");
+            if (File.Exists(ssf.SubsetFontFileTemp)) File.Delete(ssf.SubsetFontFileTemp);
+            var retry = GetSubsetCmd(ssf);
+            retry.ArgumentList.Add("--drop-tables+=gasp");
+            ExecuteCmd(retry);
+        }
     }
 
     public void DumpFont(SubsetFont ssf) => ExecuteCmd(GetDumpFontCmd(ssf));
@@ -189,6 +201,8 @@ public class PyFontTools(string pyftsubset, string ttx, ILogger? logger) : Subse
     {
         sw ??= new Stopwatch();
         var success = true;
+        var errorOutput = "";
+        int? exitCode = null;
         sw.Start();
         using var process = Process.Start(startInfo);
         logger?.ZLogDebug($"Start command: {startInfo.FileName} {string.Join(' ', startInfo.ArgumentList)}");
@@ -196,12 +210,12 @@ public class PyFontTools(string pyftsubset, string ttx, ILogger? logger) : Subse
         if (process != null)
         {
             var output = process.StandardOutput;
-            var errorOutput = process.StandardError.ReadToEnd();
+            errorOutput = process.StandardError.ReadToEnd();
             var outputStr = output.ReadToEnd();
 
             logger?.ZLogDebug($"Executing...");
             process.WaitForExit();
-            var exitCode = process.ExitCode;
+            exitCode = process.ExitCode;
 
             sw.Stop();
 
@@ -226,10 +240,24 @@ public class PyFontTools(string pyftsubset, string ttx, ILogger? logger) : Subse
         sw.Reset();
         if (!success)
         {
-            throw new Exception($"Command execution failed: {startInfo.FileName} {string.Join(' ', startInfo.ArgumentList)}");
+            throw new FontToolCommandException(
+                $"{startInfo.FileName} {string.Join(' ', startInfo.ArgumentList)}", exitCode, errorOutput);
         }
 
         //return success;
+    }
+
+    private sealed class FontToolCommandException : Exception
+    {
+        public string ErrorOutput { get; }
+
+        public FontToolCommandException(string command, int? exitCode, string errorOutput)
+            : base($"Command execution failed{(exitCode is null ? "" : $" (exit {exitCode})")}: {command}" +
+                   (string.IsNullOrWhiteSpace(errorOutput) ? "" : Environment.NewLine +
+                    errorOutput.TrimEnd()[^Math.Min(4000, errorOutput.TrimEnd().Length)..]))
+        {
+            ErrorOutput = errorOutput;
+        }
     }
 
     private static ProcessStartInfo GetSimpleCmd(string exe) => new()
