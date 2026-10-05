@@ -28,7 +28,7 @@ dotnet build -c Release -p:Platform=x64
 
 两种模式都沿用输出文件夹和“封装成功后安全替换原视频”选项。临时字幕、字体和未完成的视频在处理后清理。
 
-首次封装模式在选好字幕和字体来源后显示字体预检横幅，列出缺失或重复字体；开始封装前会再检查一次。预检警告不会禁止启动：缺字时尽量处理已有字体。字集化失败时会暂停并在日志区询问：**Y** 用原字幕与完整字体继续当前项，**A** 后续同类失败也这样处理，**N** 跳过当前项，**B** 后续同类失败全部跳过，**Q** 停止批次。仅补充字体模式在处理每个 MKV 时检查所选字体来源；若原 MKV 已有字体附件，也会核对它们，并在日志处提供 **Y** 继续当前项、**A** 后续决策全部继续、**N** 跳过当前项、**B** 后续决策全部跳过、**Q** 停止批次。原 MKV 没有字体附件且所选字体齐全时直接补充。原 MKV 字体已齐全时，选择继续会用所选字体重新字集化并替换旧附件；所选字体不足时继续会保留旧附件。其他处理异常而继续时，原 MKV 保持不变（输出到新目录时复制原 MKV）。
+首次封装模式在选好字幕和字体来源后显示字体预检横幅，列出缺失或重复字体；开始封装前会再检查一次。预检警告不会禁止启动：缺字时尽量处理已有字体。子集化失败时会暂停并在日志区询问：**Y** 用原字幕与完整字体继续当前项，**A** 后续同类失败也这样处理，**N** 跳过当前项，**B** 后续同类失败全部跳过，**Q** 停止批次。仅补充字体模式在处理每个 MKV 时检查所选字体来源；若原 MKV 已有字体附件，也会核对它们，并在日志处提供 **Y** 继续当前项、**A** 后续决策全部继续、**N** 跳过当前项、**B** 后续决策全部跳过、**Q** 停止批次。原 MKV 没有字体附件且所选字体齐全时直接补充。原 MKV 字体已齐全时，选择继续会用所选字体重新子集化并替换旧附件；所选字体不足时继续会保留旧附件。其他处理异常而继续时，原 MKV 保持不变（输出到新目录时复制原 MKV）。
 
 此功能要求本机安装 Python 与 `fonttools`，可用 `python -m pip install fonttools` 安装。程序启动字体任务时会检测 Python、fontTools、`pyftsubset.exe` 和 `ttx.exe`；检测失败会在日志中提示。检测范围包括 PATH 和用户级 Python 安装目录 `AppData\Local\Programs\Python`。
 
@@ -36,7 +36,7 @@ dotnet build -c Release -p:Platform=x64
 
 启用字体时，输出文件扩展名为 `.mkv`。若勾选安全替换原视频，原 MKV 在封装成功后原位替换；非 MKV 原视频在同目录生成同名 MKV 后删除原文件。若该目标 MKV 已存在，则跳过该集。
 
-`FontSubsetCore` 内含从同工作区 AssFontSubset.Core 引入的 PyFontTools 后端源码快照；本项目只使用这一后端。可运行 `dotnet run --project ../tests/FontIntegrationSmoke/FontIntegrationSmoke.csproj -c Release` 检查 ZIP、7Z、字集化、MKV 附件和仅补充字体流程（需本机 FFmpeg、fontTools 和 Arial 字体）。
+`FontSubsetCore` 内含从同工作区 AssFontSubset.Core 引入的 PyFontTools 后端源码快照；本项目只使用这一后端。可运行 `dotnet run --project ../tests/FontIntegrationSmoke/FontIntegrationSmoke.csproj -c Release` 检查 ZIP、7Z、子集化、MKV 附件和仅补充字体流程（需本机 FFmpeg、fontTools 和 Arial 字体）。
 
 可发布框架依赖 ZIP 或自包含单文件 EXE。自包含版首次启动时会自动把原生依赖释放到系统临时目录；字体功能仍需要本机 Python、fontTools 和 FFmpeg。
 

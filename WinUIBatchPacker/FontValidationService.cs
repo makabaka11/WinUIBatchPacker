@@ -13,7 +13,7 @@ internal sealed record FontValidationResult(int SubtitleCount, int FontCount,
         get
         {
             if (!HasIssues) return SubtitleCount == 0
-                ? "没有需要字集化的 ASS/SSA 字幕。"
+                ? "没有需要子集化的 ASS/SSA 字幕。"
                 : $"字体预检通过：{SubtitleCount} 个 ASS/SSA 字幕，扫描到 {FontCount} 个字体文件。";
             var details = new List<string>();
             if (Missing.Count > 0)

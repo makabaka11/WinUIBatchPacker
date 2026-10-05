@@ -903,7 +903,7 @@ public sealed partial class MainWindow : Window
                             (source, check) => PromptIssueAsync(source + "检查：" + check.Summary,
                                 "Y/A 用所选字体尝试处理；字体来源不全时保留旧附件；N/B 跳过；Q 停止"),
                             check => PromptIssueAsync("字体检查通过：" + check.Summary,
-                                "Y/A 重新字集化并替换旧字体附件；N/B 跳过；Q 停止"));
+                                "Y/A 重新子集化并替换旧字体附件；N/B 跳过；Q 停止"));
                     }
                     else
                     {
@@ -917,12 +917,12 @@ public sealed partial class MainWindow : Window
                                     fontTools!, encoding, allowMissingFonts: fontPreflight?.Missing.Count > 0);
                                 muxSubtitles = prepared.Subtitles;
                                 fonts = prepared.Fonts;
-                                AppendLog($"  字集化完成，准备附加 {fonts.Length} 个字体。");
+                                AppendLog($"  子集化完成，准备附加 {fonts.Length} 个字体。");
                             }
                             catch (Exception ex)
                             {
                                 var decision = await PromptIssueAsync(
-                                    $"{Path.GetFileName(video)} 字集化失败：{ex.Message}",
+                                    $"{Path.GetFileName(video)} 子集化失败：{ex.Message}",
                                     "Y 用原字幕和完整字体继续当前项；A 后续同类失败也这样处理；N 跳过当前项；B 后续同类失败全部跳过；Q 停止批次");
                                 if (decision != IssueDecision.Continue) throw new BatchControlException(decision);
                                 AppendLog("按用户选择，改用原字幕与完整字体继续当前项。", LogLevel.Warn);

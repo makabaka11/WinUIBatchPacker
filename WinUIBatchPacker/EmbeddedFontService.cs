@@ -29,7 +29,7 @@ internal static class EmbeddedFontService
         if (probe.Code != 0) throw new InvalidDataException("无法读取 MKV 轨道：" + probe.Output);
         var streams = ParseStreams(probe.Output);
         var styled = streams.Where(s => s.Type == "subtitle" && s.Codec is "ass" or "ssa").ToArray();
-        if (styled.Length == 0) throw new InvalidDataException("MKV 中没有 ASS/SSA 字幕轨道，无法进行字体字集化。");
+        if (styled.Length == 0) throw new InvalidDataException("MKV 中没有 ASS/SSA 字幕轨道，无法进行字体子集化。");
         var fontStreams = streams.Where(s => s.Type == "attachment" && IsFont(s)).ToArray();
 
         var extractedFonts = Path.Combine(workDirectory, "extracted-fonts");
@@ -98,7 +98,7 @@ internal static class EmbeddedFontService
             Path.Combine(workDirectory, "episode"), tools, allowMissingFonts: continueWithIssues,
             fontAliases: fontAliases);
         if (subset.Fonts.Length == 0 && !(continueWithIssues && fontStreams.Length > 0))
-            throw new InvalidDataException("未生成字集化字体，原视频未修改。");
+            throw new InvalidDataException("未生成子集化字体，原视频未修改。");
 
         var args = new List<string> { "-i", video };
         foreach (var subtitle in subset.Subtitles) args.AddRange(["-i", subtitle]);

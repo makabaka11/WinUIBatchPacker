@@ -175,7 +175,7 @@ internal static class FontPackagingService
         var rewritten = subtitles.Select(p => IsStyledSubtitle(p)
             ? Path.Combine(output, Path.GetFileName(p)) : p).ToArray();
         foreach (var file in rewritten.Where(p => p.StartsWith(output, StringComparison.OrdinalIgnoreCase)))
-            if (!File.Exists(file)) throw new FileNotFoundException("字集化后的字幕未生成", file);
+            if (!File.Exists(file)) throw new FileNotFoundException("子集化后的字幕未生成", file);
         var fonts = Directory.EnumerateFiles(output)
             .Where(p => FontExtensions.Contains(Path.GetExtension(p))).Order().ToArray();
         return (rewritten, fonts);
